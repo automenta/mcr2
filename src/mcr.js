@@ -43,19 +43,46 @@ class Session {
       return new Promise((resolve) => {
         this.prologSession.query(prologQuery);
         this.prologSession.answer(ans => {
-          resolve({ success: ans !== false, bindings: ans !== false ? pl.format_answer(ans) : null });
+          resolve({ 
+            success: ans !== false, 
+            bindings: ans !== false ? pl.format_answer(ans) : null,
+            explanation: ans !== false ? [prologQuery] : []
+          });
         });
       });
     } catch (error) {
-      return { success: false, bindings: null };
+      return { success: false, bindings: null, explanation: [] };
+    }
+  }
+
+  async nquery(naturalLanguageQuery) {
+    try {
+      const prologQuery = await this.translator(naturalLanguageQuery, this.mcr.llmClient);
+      const result = await this.query(prologQuery);
+      return result;
+    } catch (error) {
+      return { success: false, bindings: null, explanation: [] };
     }
   }
 
   async reason(taskDescription) {
-    return {
-      answer: 'Reasoning result placeholder',
-      steps: []
-    };
+    let steps = [];
+    try {
+      const prologQuery = await this.translator(taskDescription, this.mcr.llmClient);
+      steps.push(`Translated: ${prologQuery}`);
+      const result = await this.query(prologQuery);
+      steps = [...steps, ...result.explanation];
+      
+      return {
+        answer: result.success ? 'Yes' : 'No',
+        steps: steps
+      };
+    } catch (error) {
+      return {
+        answer: 'Reasoning error',
+        steps: [`Error: ${error.message}`]
+      };
+    }
   }
 
   getKnowledgeGraph() {

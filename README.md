@@ -58,8 +58,18 @@ async function main() {
   await session.assert('All birds have wings.');
   await session.assert('Tweety is a canary.');
   
-  const result = await session.query('has_wings(tweety)');
-  console.log(`Answer: ${result.success ? 'Yes' : 'No'}`);
+  // Query with Prolog
+  const prologResult = await session.query('has_wings(tweety)');
+  console.log(`Prolog answer: ${prologResult.success ? 'Yes' : 'No'}`);
+  
+  // Query with natural language
+  const naturalResult = await session.nquery('Does tweety have wings?');
+  console.log(`Natural language answer: ${naturalResult.success ? 'Yes' : 'No'}`);
+  
+  // Reason about task
+  const reasoning = await session.reason('Can tweety fly?');
+  console.log(`Reasoning: ${reasoning.answer}`);
+  console.log(`Steps: ${reasoning.steps.join('\n')}`);
 }
 
 main().catch(console.error);
@@ -89,7 +99,13 @@ Represents an isolated reasoning context and its knowledge graph.
     *   **Returns**: An object containing:
         *   `success`: A boolean indicating whether the query succeeded
         *   `bindings`: A string representing variable bindings or null
-*   `async reason(taskDescription)`: A higher-level method to perform complex reasoning that may involve multiple assertions and queries to fulfill a goal.
+        *   `explanation`: Array of Prolog queries used in reasoning
+*   `async nquery(naturalLanguageQuery)`: Translates natural language question to Prolog and executes query.
+    *   **Returns**: Same object as `query()`
+*   `async reason(taskDescription)`: Uses translation and query to provide natural language reasoning.
+    *   **Returns**: An object containing:
+        *   `answer`: 'Yes' or 'No' based on query result
+        *   `steps`: Array of reasoning steps
 *   `getKnowledgeGraph()`: Returns the entire knowledge graph as a Prolog string.
 
 ## 🧠 Core Concepts: The Path to AGI

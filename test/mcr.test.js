@@ -39,11 +39,12 @@ describe('Session', () => {
     expect(session.getKnowledgeGraph()).toContain('bird(tweety).');
   });
 
-  test('query returns bindings for valid query after natural language assert', async () => {
+  test('query returns bindings and explanation for valid query', async () => {
     await session.assert('Tweety is a bird');
     const result = await session.query('bird(X).');
     expect(result.success).toBe(true);
     expect(result.bindings).toContain('X = tweety');
+    expect(result.explanation).toEqual(['bird(X).']);
   });
 
   test('query returns no bindings for invalid query', async () => {
@@ -65,3 +66,17 @@ describe('Session', () => {
     expect(typeof session.getKnowledgeGraph()).toBe('string');
   });
 });
+  test('nquery translates natural language and executes query', async () => {
+    await session.assert('Tweety is a bird');
+    const result = await session.nquery('Is tweety a bird?');
+    expect(result.success).toBe(true);
+    expect(result.bindings).toContain('X = tweety');
+  });
+
+  test('reason returns explanation steps', async () => {
+    await session.assert('All birds have wings');
+    await session.assert('Tweety is a bird');
+    const reasoning = await session.reason('Does tweety have wings?');
+    expect(reasoning.answer).toBe('Yes');
+    expect(reasoning.steps.length).toBeGreaterThan(0);
+  });
