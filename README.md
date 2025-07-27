@@ -48,29 +48,18 @@ require('dotenv').config();
 const { MCR } = require('model-context-reasoner');
 
 async function main() {
-  // 1. Configure and instantiate MCR
   const mcr = new MCR({
-    llm: { provider: 'openai', apiKey: process.env.OPENAI_API_KEY },
+    llm: { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
   });
-
-  // 2. Create a reasoning session
+  
   const session = mcr.createSession();
-
-  // 3. Populate the Knowledge Graph
-  await session.assert('All canaries are birds.');
-  await session.assert('All birds have wings.');
-  await session.assert('Tweety is a canary.');
-
-  // 4. Reason over the knowledge
+  
+  console.log(await session.assert('All canaries are birds.'));
+  console.log(await session.assert('All birds have wings.'));
+  console.log(await session.assert('Tweety is a canary.'));
+  
   const result = await session.query('Does Tweety have wings?');
-
-  // 5. Get the explainable result
-  console.log(`Query: "Does Tweety have wings?"`);
   console.log(`Answer: ${result.answer}`);
-  console.log('--- Explanation ---');
-  result.explanation.forEach((step, i) => {
-    console.log(`${i + 1}: ${step}`);
-  });
 }
 
 main().catch(console.error);
