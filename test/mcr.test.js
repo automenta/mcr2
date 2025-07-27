@@ -73,7 +73,7 @@ describe('Session', () => {
     await session.assert('Tweety is a bird');
     const result = await session.nquery('Is tweety a bird?');
     expect(result.success).toBe(true);
-    expect(result.bindings).toContain('X = tweety');
+    expect(result.bindings).toBe('true');
   });
 
   test('reason returns explanation steps', async () => {
@@ -81,5 +81,9 @@ describe('Session', () => {
     await session.assert('Tweety is a bird');
     const reasoning = await session.reason('Does tweety have wings?');
     expect(reasoning.answer).toBe('Yes');
-    expect(reasoning.steps.length).toBeGreaterThan(0);
+    expect(reasoning.steps).toEqual([
+      'Translated: has_wings(tweety).',
+      'Executed: has_wings(tweety).',
+      'Result: true'
+    ]);
   });

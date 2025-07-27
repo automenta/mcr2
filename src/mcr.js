@@ -40,15 +40,22 @@ class Session {
     try {
       const fullProgram = this.program.join('\n');
       this.prologSession.consult(fullProgram);
+      const answers = [];
       return new Promise((resolve) => {
         this.prologSession.query(prologQuery);
-        this.prologSession.answer(ans => {
-          resolve({ 
-            success: ans !== false, 
-            bindings: ans !== false ? pl.format_answer(ans) : null,
-            explanation: ans !== false ? [prologQuery] : []
-          });
-        });
+        const gatherAnswers = (ans) => {
+          if (ans === false) {
+            resolve({
+              success: answers.length > 0,
+              bindings: answers.length > 0 ? answers.join(', ') : null,
+              explanation: answers.length > 0 ? [prologQuery] : []
+            });
+          } else {
+            answers.push(pl.format_answer(ans));
+            this.prologSession.answer(gatherAnswers);
+          }
+        };
+        this.prologSession.answer(gatherAnswers);
       });
     } catch (error) {
       return { success: false, bindings: null, explanation: [] };
@@ -66,13 +73,15 @@ class Session {
   }
 
   async reason(taskDescription) {
-    let steps = [];
+    const steps = [];
     try {
       const prologQuery = await this.translator(taskDescription, this.mcr.llmClient);
       steps.push(`Translated: ${prologQuery}`);
       const result = await this.query(prologQuery);
-      steps = [...steps, ...result.explanation];
-      
+      if (result.success) {
+        steps.push(`Executed: ${prologQuery}`);
+        steps.push(`Result: ${result.bindings}`);
+      }
       return {
         answer: result.success ? 'Yes' : 'No',
         steps: steps
