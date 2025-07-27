@@ -1,6 +1,10 @@
 const { MCR, Session } = require('../src/mcr');
 
-jest.mock('../src/translation/directToProlog', () => jest.fn().mockResolvedValue('bird(tweety).'));
+jest.mock('../src/translation/directToProlog', () => jest.fn().mockImplementation(async (text) => {
+  if (text.includes('bird')) return 'bird(tweety).';
+  if (text.includes('canary')) return 'canary(tweety).';
+  return '';
+}));
 
 describe('MCR', () => {
   test('instantiates with config', () => {
@@ -18,10 +22,15 @@ describe('MCR', () => {
 
 describe('Session', () => {
   let session;
+  let mcr;
 
   beforeEach(() => {
-    const mcr = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });
+    mcr = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });
     session = mcr.createSession();
+  });
+
+  afterEach(() => {
+    session = null;
   });
 
   test('assert translates and stores natural language', async () => {
@@ -30,7 +39,7 @@ describe('Session', () => {
     expect(session.getKnowledgeGraph()).toContain('bird(tweety).');
   });
 
-  test('query returns bindings for valid query', async () => {
+  test('query returns bindings for valid query after natural language assert', async () => {
     await session.assert('Tweety is a bird');
     const result = await session.query('bird(X).');
     expect(result.success).toBe(true);
@@ -44,7 +53,15 @@ describe('Session', () => {
     expect(result.bindings).toBeNull();
   });
 
-  test('getKnowledgeGraph returns string', () => {
+  test('multiple asserts build knowledge graph', async () => {
+    await session.assert('Tweety is a bird');
+    await session.assert('Tweety is a canary');
+    const kg = session.getKnowledgeGraph();
+    expect(kg).toContain('bird(tweety).');
+    expect(kg).toContain('canary(tweety).');
+  });
+
+  test('getKnowledgeGraph returns program as string', () => {
     expect(typeof session.getKnowledgeGraph()).toBe('string');
   });
 });

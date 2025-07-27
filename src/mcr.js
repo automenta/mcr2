@@ -37,14 +37,18 @@ class Session {
   }
 
   async query(prologQuery) {
-    const fullProgram = this.program.join('\n');
-    this.prologSession.consult(fullProgram);
-    return new Promise((resolve) => {
-      this.prologSession.query(prologQuery);
-      this.prologSession.answer(ans => {
-        resolve({ success: ans !== false, bindings: ans !== false ? pl.format_answer(ans) : null });
+    try {
+      const fullProgram = this.program.join('\n');
+      this.prologSession.consult(fullProgram);
+      return new Promise((resolve) => {
+        this.prologSession.query(prologQuery);
+        this.prologSession.answer(ans => {
+          resolve({ success: ans !== false, bindings: ans !== false ? pl.format_answer(ans) : null });
+        });
       });
-    });
+    } catch (error) {
+      return { success: false, bindings: null };
+    }
   }
 
   async reason(taskDescription) {

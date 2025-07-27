@@ -68,14 +68,7 @@ main().catch(console.error);
 **Expected Output:**
 
 ```
-Query: "Does Tweety have wings?"
-Answer: Yes.
---- Explanation ---
-1: To know if tweety has wings, I need to solve for has_wings(tweety).
-2: The knowledge base states that tweety is a canary (canary(tweety)).
-3. The knowledge base contains a rule: if something is a bird, it has wings (has_wings(X) :- bird(X)).
-4. The knowledge base also contains a rule: if something is a canary, it is a bird (bird(X) :- canary(X)).
-5: Therefore, tweety is a bird, and because tweety is a bird, it has wings.
+Answer: Yes
 ```
 
 ## 📦 API Reference
@@ -92,13 +85,10 @@ Answer: Yes.
 Represents an isolated reasoning context and its knowledge graph.
 
 *   `async assert(naturalLanguageText)`: Translates a statement into a symbolic representation and integrates it into the knowledge graph. Returns an `integrationReport` detailing what was added.
-*   `async query(naturalLanguageQuery, options)`: Reasons over the knowledge graph to answer a question.
+*   `async query(prologQuery)`: Executes a Prolog query against the knowledge graph.
     *   **Returns**: An object containing:
-        *   `answer`: The natural language answer.
-        *   `confidence`: A score from 0 to 1.
-        *   `explanation`: An array of strings detailing the logical steps taken.
-    *   **Options**:
-        *   `allowSubSymbolicFallback`: If `true`, the LLM will be asked the question directly if symbolic reasoning fails.
+        *   `success`: A boolean indicating whether the query succeeded
+        *   `bindings`: A string representing variable bindings or null
 *   `async reason(taskDescription)`: A higher-level method to perform complex reasoning that may involve multiple assertions and queries to fulfill a goal.
 *   `getKnowledgeGraph()`: Returns the entire knowledge graph as a Prolog string.
 
