@@ -1,8 +1,13 @@
 const pl = require('tau-prolog');
+const { OpenAI } = require('openai');
+const directToProlog = require('./translation/directToProlog');
 
 class MCR {
   constructor(config) {
     this.config = config;
+    this.llmClient = config.llm.provider === 'openai' 
+      ? new OpenAI({ apiKey: config.llm.apiKey }) 
+      : null;
   }
 
   createSession(options = {}) {
@@ -16,9 +21,11 @@ class Session {
     this.options = options;
     this.prologSession = pl.create();
     this.program = [];
+    this.translator = directToProlog;
   }
 
-  async assert(prologClause) {
+  async assert(naturalLanguageText) {
+    const prologClause = await this.translator(naturalLanguageText, this.mcr.llmClient);
     this.program.push(prologClause);
     const fullProgram = this.program.join('\n');
     this.prologSession.consult(fullProgram);

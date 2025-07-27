@@ -54,12 +54,12 @@ async function main() {
   
   const session = mcr.createSession();
   
-  console.log(await session.assert('All canaries are birds.'));
-  console.log(await session.assert('All birds have wings.'));
-  console.log(await session.assert('Tweety is a canary.'));
+  await session.assert('All canaries are birds.');
+  await session.assert('All birds have wings.');
+  await session.assert('Tweety is a canary.');
   
-  const result = await session.query('Does Tweety have wings?');
-  console.log(`Answer: ${result.answer}`);
+  const result = await session.query('has_wings(tweety)');
+  console.log(`Answer: ${result.success ? 'Yes' : 'No'}`);
 }
 
 main().catch(console.error);
