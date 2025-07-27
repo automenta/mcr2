@@ -1,8 +1,11 @@
 const { MCR, Session } = require('../src/mcr');
 
 jest.mock('../src/translation/directToProlog', () => jest.fn().mockImplementation(async (text) => {
-  if (text.includes('bird')) return 'bird(tweety).';
-  if (text.includes('canary')) return 'canary(tweety).';
+  if (text.includes('All birds have wings')) return 'has_wings(X) :- bird(X).';
+  if (text.includes('Tweety is a bird')) return 'bird(tweety).';
+  if (text.includes('Tweety is a canary')) return 'canary(tweety).';
+  if (text.includes('have wings?')) return 'has_wings(tweety).';
+  if (text === 'Is tweety a bird?') return 'bird(tweety).';
   return '';
 }));
 
