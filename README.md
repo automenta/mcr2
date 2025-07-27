@@ -19,7 +19,7 @@ MCR is built on a foundation designed for limitless growth.
 *   **Stateful Reasoning Sessions**: Create isolated reasoning contexts, each with its own independent, persistent knowledge graph.
 *   **Pluggable LLMs & Strategies**: Swap LLM providers and reasoning strategies with configuration changes.
 *   **Direct & Hybrid Reasoning**: Execute pure symbolic logic for speed and precision, or allow the system to fall back to the LLM for sub-symbolic queries when formal deduction yields no answer.
-*   **Rich, Explainable Outputs**: Queries don't just return an answer; they return the answer *and* the logical steps used to find it.
+*   **Rich, Explainable Outputs**: Queries don't just return an answer; they return the answer *and* the logical steps used to reach it, along with confidence scores.
 
 ## 🚀 Quick Start
 
@@ -61,15 +61,18 @@ async function main() {
   // Query with Prolog
   const prologResult = await session.query('has_wings(tweety)');
   console.log(`Prolog answer: ${prologResult.success ? 'Yes' : 'No'}`);
+  console.log(`Confidence: ${prologResult.confidence}`);
   
-  // Query with natural language
-  const naturalResult = await session.nquery('Does tweety have wings?');
+  // Query with natural language and fallback
+  const naturalResult = await session.nquery('Does tweety fly?', { allowSubSymbolicFallback: true });
   console.log(`Natural language answer: ${naturalResult.success ? 'Yes' : 'No'}`);
+  console.log(`Confidence: ${naturalResult.confidence}`);
   
   // Reason about task
-  const reasoning = await session.reason('Can tweety fly?');
+  const reasoning = await session.reason('Can tweety migrate?', { allowSubSymbolicFallback: true });
   console.log(`Reasoning: ${reasoning.answer}`);
   console.log(`Steps: ${reasoning.steps.join('\n')}`);
+  console.log(`Confidence: ${reasoning.confidence}`);
 }
 
 main().catch(console.error);
@@ -79,12 +82,15 @@ main().catch(console.error);
 
 ```
 Prolog answer: Yes
+Confidence: 1
 Natural language answer: Yes
+Confidence: 0.7
 Reasoning: Yes
 Steps:
-Translated: has_wings(tweety)
-Executed: has_wings(tweety)
+Translated: can_migrate(tweety)
+Executed: can_migrate(tweety)
 Result: true
+Confidence: 1
 ```
 
 ## 📦 API Reference
@@ -101,17 +107,25 @@ Result: true
 Represents an isolated reasoning context and its knowledge graph.
 
 *   `async assert(naturalLanguageText)`: Translates a statement into a symbolic representation and integrates it into the knowledge graph. Returns an `integrationReport` detailing what was added.
-*   `async query(prologQuery)`: Executes a Prolog query against the knowledge graph.
     *   **Returns**: An object containing:
-        *   `success`: A boolean indicating whether the query succeeded
-        *   `bindings`: A string representing variable bindings or null
-        *   `explanation`: Array of Prolog queries used in reasoning
-*   `async nquery(naturalLanguageQuery)`: Translates natural language question to Prolog and executes query.
+        *   `success`: A boolean indicating whether the assertion succeeded
+        *   `symbolicRepresentation`: The Prolog clause added
+        *   `originalText`: The original natural language input
+*   `async query(prologQuery, options)`: Executes a Prolog query against the knowledge graph.
+    *   **Options**: 
+        *   `allowSubSymbolicFallback` (boolean): Enable fallback to LLM if symbolic query fails
+    *   **Returns**: An object containing:
+        *   `success`: Boolean indicating query success
+        *   `bindings`: Variable bindings or LLM response
+        *   `explanation`: Array of Prolog queries used
+        *   `confidence`: Numerical confidence score (0.0-1.0)
+*   `async nquery(naturalLanguageQuery, options)`: Translates natural language question to Prolog and executes query.
     *   **Returns**: Same object as `query()`
-*   `async reason(taskDescription)`: Uses translation and query to provide natural language reasoning.
+*   `async reason(taskDescription, options)`: Uses translation and query to provide natural language reasoning.
     *   **Returns**: An object containing:
         *   `answer`: 'Yes' or 'No' based on query result
         *   `steps`: Array of reasoning steps
+        *   `confidence`: Numerical confidence score
 *   `getKnowledgeGraph()`: Returns the entire knowledge graph as a Prolog string.
 
 ## 🧠 Core Concepts: The Path to AGI
@@ -128,7 +142,7 @@ A Translation Strategy is a "pluggable mind" for the reasoner. It defines how to
 
 ### The Dynamic Knowledge Graph
 
-The "KB" is more than a static database. It's a graph that can be actively shaped and constrained by **ontologies**. You can provide an ontology that defines the "shape" of the world—the types of entities that exist and the relationships they can have. This allows the reasoner to:
+The "KB" is more than a static database. It's a graph that can be actively shaped and constrained by **ontologies**. You can provide an ontology that defines the "shape" of the world—the types of entities and relationships they can have. This allows the reasoner to:
 
 *   Identify and reject nonsensical assertions ("Socrates is a color").
 *   Ask clarifying questions when faced with ambiguity.
@@ -145,4 +159,7 @@ MCR is architected to evolve. The foundational features are the launchpad for a 
 *   **Strategy Evolution**: The system will log the performance (latency, accuracy, cost) of its Translation Strategies. This data will be used to create a feedback loop, allowing an "optimizer" process to critique, refine, and generate new, more effective strategies automatically.
 *   **Automated Knowledge Acquisition**: Future versions will be able to ingest and understand unstructured documents, websites, or API documentation, automatically building and updating their own knowledge graphs.
 *   **Multi-Modal Reasoning**: The architecture is designed to support future strategies that can translate inputs from other modalities—such as image recognition or data streams—into the symbolic core, enabling reasoning across different types of information.
-*   **Goal-Oriented Agency**: The `reason()` method will evolve into a true agentic loop, allowing the system to autonomously break down complex goals into smaller, solvable steps of assertion and querying.
+*   **Goal-Oriented Agency**: The `reason()` method will evolve into a true agentic loop, capable of breaking down complex goals into smaller, solvable steps of assertion and querying.
+``` ```
+
+test/mcr.test.js
