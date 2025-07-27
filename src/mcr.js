@@ -25,39 +25,32 @@ class Session {
   }
 
   async assert(naturalLanguageText) {
-    const prologClause = await this.translator(naturalLanguageText, this.mcr.llmClient);
-    this.program.push(prologClause);
-    const fullProgram = this.program.join('\n');
-    this.prologSession.consult(fullProgram);
-    return {
-      success: true,
-      message: 'Asserted successfully',
-      symbolicRepresentation: prologClause
-    };
+    try {
+      const prologClause = await this.translator(naturalLanguageText, this.mcr.llmClient);
+      this.program.push(prologClause);
+      this.prologSession.consult(this.program.join('\n'));
+      return { success: true, symbolicRepresentation: prologClause };
+    } catch (error) {
+      console.error('Assertion error:', error);
+      return { success: false, symbolicRepresentation: null };
+    }
   }
 
   async query(prologQuery) {
     try {
-      const fullProgram = this.program.join('\n');
-      this.prologSession.consult(fullProgram);
+      this.prologSession.consult(this.program.join('\n'));
       const answers = [];
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         this.prologSession.query(prologQuery);
-        const gatherAnswers = (ans) => {
-          if (ans === false) {
-            resolve({
-              success: answers.length > 0,
-              bindings: answers.length > 0 ? answers.join(', ') : null,
-              explanation: answers.length > 0 ? [prologQuery] : []
-            });
-          } else {
-            answers.push(pl.format_answer(ans));
-            this.prologSession.answer(gatherAnswers);
-          }
+        const gatherAnswers = ans => {
+          ans === false 
+            ? resolve({ success: answers.length > 0, bindings: answers.length ? answers.join(', ') : null, explanation: [prologQuery] })
+            : (answers.push(pl.format_answer(ans)), this.prologSession.answer(gatherAnswers));
         };
         this.prologSession.answer(gatherAnswers);
       });
     } catch (error) {
+      console.error('Query error:', error);
       return { success: false, bindings: null, explanation: [] };
     }
   }
@@ -65,32 +58,22 @@ class Session {
   async nquery(naturalLanguageQuery) {
     try {
       const prologQuery = await this.translator(naturalLanguageQuery, this.mcr.llmClient);
-      const result = await this.query(prologQuery);
-      return result;
+      return await this.query(prologQuery);
     } catch (error) {
+      console.error('Natural query error:', error);
       return { success: false, bindings: null, explanation: [] };
     }
   }
 
   async reason(taskDescription) {
-    const steps = [];
     try {
       const prologQuery = await this.translator(taskDescription, this.mcr.llmClient);
-      steps.push(`Translated: ${prologQuery}`);
+      const steps = [`Translated: ${prologQuery}`];
       const result = await this.query(prologQuery);
-      if (result.success) {
-        steps.push(`Executed: ${prologQuery}`);
-        steps.push(`Result: ${result.bindings}`);
-      }
-      return {
-        answer: result.success ? 'Yes' : 'No',
-        steps: steps
-      };
+      result.success && (steps.push(`Executed: ${prologQuery}`, `Result: ${result.bindings}`));
+      return { answer: result.success ? 'Yes' : 'No', steps };
     } catch (error) {
-      return {
-        answer: 'Reasoning error',
-        steps: [`Error: ${error.message}`]
-      };
+      return { answer: 'Reasoning error', steps: [`Error: ${error.message}`] };
     }
   }
 
