@@ -23,13 +23,28 @@ describe('Session', () => {
   });
 
   test('assert returns integration report', async () => {
-    const report = await session.assert('Test assertion');
-    expect(report).toHaveProperty('success', true);
+    const report = await session.assert('bird(tweety).');
+    expect(report.success).toBe(true);
+    expect(report.symbolicRepresentation).toBe('bird(tweety).');
   });
 
-  test('query returns answer object', async () => {
-    const result = await session.query('Test query');
-    expect(result).toHaveProperty('answer');
+  test('assert updates knowledge graph', async () => {
+    await session.assert('bird(tweety).');
+    expect(session.getKnowledgeGraph()).toContain('bird(tweety).');
+  });
+
+  test('query returns bindings for valid query', async () => {
+    await session.assert('bird(tweety).');
+    const result = await session.query('bird(X).');
+    expect(result.success).toBe(true);
+    expect(result.bindings).toContain('X = tweety');
+  });
+
+  test('query returns no bindings for invalid query', async () => {
+    await session.assert('bird(tweety).');
+    const result = await session.query('fish(X).');
+    expect(result.success).toBe(false);
+    expect(result.bindings).toBeNull();
   });
 
   test('reason returns reasoning result', async () => {
@@ -38,7 +53,6 @@ describe('Session', () => {
   });
 
   test('getKnowledgeGraph returns string', () => {
-    const kg = session.getKnowledgeGraph();
-    expect(typeof kg).toBe('string');
+    expect(typeof session.getKnowledgeGraph()).toBe('string');
   });
 });
