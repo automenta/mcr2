@@ -40,15 +40,20 @@ class Session {
     try {
       this.prologSession.consult(this.program.join('\n'));
       const answers = [];
-      return new Promise(resolve => {
-        this.prologSession.query(prologQuery);
-        const gatherAnswers = ans => {
-          ans === false 
-            ? resolve({ success: answers.length > 0, bindings: answers.length ? answers.join(', ') : null, explanation: [prologQuery] })
-            : (answers.push(pl.format_answer(ans)), this.prologSession.answer(gatherAnswers));
-        };
+      const gatherAnswers = (ans) => {
+        if (ans === false) {
+          return { 
+            success: answers.length > 0, 
+            bindings: answers.length ? answers.join(', ') : null, 
+            explanation: [prologQuery] 
+          };
+        }
+        answers.push(pl.format_answer(ans));
         this.prologSession.answer(gatherAnswers);
-      });
+      };
+      this.prologSession.query(prologQuery);
+      this.prologSession.answer(gatherAnswers);
+      return new Promise(resolve => resolve({ success: answers.length > 0, bindings: answers.length ? answers.join(', ') : null, explanation: [prologQuery] }));
     } catch (error) {
       console.error('Query error:', error);
       return { success: false, bindings: null, explanation: [] };
@@ -68,12 +73,18 @@ class Session {
   async reason(taskDescription) {
     try {
       const prologQuery = await this.translator(taskDescription, this.mcr.llmClient);
-      const steps = [`Translated: ${prologQuery}`];
       const result = await this.query(prologQuery);
-      result.success && (steps.push(`Executed: ${prologQuery}`, `Result: ${result.bindings}`));
-      return { answer: result.success ? 'Yes' : 'No', steps };
+      return {
+        answer: result.success ? 'Yes' : 'No',
+        steps: result.success 
+          ? [`Translated: ${prologQuery}`, `Executed: ${prologQuery}`, `Result: ${result.bindings}`]
+          : [`Translated: ${prologQuery}`, `Error: ${result.bindings || 'Unknown error'}`]
+      };
     } catch (error) {
-      return { answer: 'Reasoning error', steps: [`Error: ${error.message}`] };
+      return { 
+        answer: 'Reasoning error', 
+        steps: [`Error: ${error.message}`] 
+      };
     }
   }
 

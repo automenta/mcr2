@@ -78,7 +78,13 @@ main().catch(console.error);
 **Expected Output:**
 
 ```
-Answer: Yes
+Prolog answer: Yes
+Natural language answer: Yes
+Reasoning: Yes
+Steps:
+Translated: has_wings(tweety)
+Executed: has_wings(tweety)
+Result: true
 ```
 
 ## 📦 API Reference
