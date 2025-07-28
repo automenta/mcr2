@@ -76,12 +76,6 @@ class OntologyManager {
     }
   }
 
-  addPredicate(type, name) {
-    if (type === 'entity') this.types.add(name);
-    else if (type === 'relationship') this.relationships.add(name);
-    else throw new Error(`Invalid predicate type: ${type}`);
-  }
-  
   getSuggestions(predicate) {
     const allTerms = [...this.types, ...this.relationships, ...Object.keys(this.synonyms)]; // Include synonyms for suggestions
     const similar = allTerms.filter(term => 

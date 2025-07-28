@@ -286,7 +286,7 @@ class Session {
   // NEW METHOD: Directly assert a Prolog clause with ontology validation
   assertProlog(prologClause) {
     if (typeof prologClause !== 'string' || !prologClause.trim().endsWith('.')) {
-      throw new Error('Invalid Prolog clause. Must be a string ending with a dot.');
+      return { success: false, symbolicRepresentation: prologClause, error: 'Invalid Prolog clause. Must be a string ending with a dot.' };
     }
     const normalizedClause = prologClause.trim();
 
@@ -297,7 +297,7 @@ class Session {
       return { success: true, symbolicRepresentation: normalizedClause };
     } catch (error) {
       this.logger.error('Prolog assertion error:', error);
-      throw error; // Re-throw to indicate assertion failure
+      return { success: false, symbolicRepresentation: normalizedClause, error: error.message };
     }
   }
 
@@ -319,11 +319,26 @@ class Session {
       const prologClause = await this.translateWithRetry(naturalLanguageText);
       // Ensure the translated result is a fact or rule (ends with a dot) for assertion
       if (typeof prologClause !== 'string' || !prologClause.trim().endsWith('.')) {
-        throw new Error('Translation resulted in a query or invalid clause for assertion. Must be a fact or rule ending with a dot.');
+        return { 
+          success: false, 
+          symbolicRepresentation: prologClause, 
+          originalText: naturalLanguageText, 
+          error: 'Translation resulted in a query or invalid clause for assertion. Must be a fact or rule ending with a dot.' 
+        };
       }
       
       // Use the new assertProlog method for validation and program update
       const assertResult = this.assertProlog(prologClause);
+
+      if (!assertResult.success) {
+        // If assertProlog failed (e.g., due to ontology), propagate its error
+        return { 
+          success: false, 
+          symbolicRepresentation: assertResult.symbolicRepresentation, 
+          originalText: naturalLanguageText, 
+          error: assertResult.error 
+        };
+      }
 
       return { 
         success: true, 
@@ -465,7 +480,12 @@ class Session {
       const prologQuery = await this.translateWithRetry(naturalLanguageQuery);
       // Ensure the translated result is a query (does not end with a dot)
       if (typeof prologQuery !== 'string' || prologQuery.trim().endsWith('.')) {
-        throw new Error('Translation resulted in a fact/rule or invalid clause for query. Must be a query (not ending with a dot).');
+        return { 
+          success: false, 
+          bindings: null, 
+          explanation: [`Translation resulted in a fact/rule or invalid clause for query. Must be a query (not ending with a dot).`], 
+          confidence: 0.0 
+        };
       }
       return await this.query(prologQuery, options);
     } catch (error) {
@@ -541,12 +561,12 @@ class Session {
           }
 
         } else if (agentAction.type === 'assert') {
-          try {
-            const assertResult = this.assertProlog(agentAction.content);
-            steps.push(`Assertion Result: Success: ${assertResult.success}, Clause: ${assertResult.symbolicRepresentation}`);
-          } catch (assertError) {
-            steps.push(`Assertion Failed: ${assertError.message}`);
-            // Decide how to handle failed assertion: continue, or throw. For now, log and continue.
+          const assertResult = this.assertProlog(agentAction.content);
+          steps.push(`Assertion Result: Success: ${assertResult.success}, Clause: ${assertResult.symbolicRepresentation}` + (assertResult.error ? `, Error: ${assertResult.error}` : ''));
+          if (!assertResult.success) {
+            // If assertion failed, decide whether to continue or terminate.
+            // For now, we'll let the agent try to recover or eventually reach max steps.
+            this.logger.warn(`Agent attempted assertion failed: ${assertResult.error}`);
           }
         } else if (agentAction.type === 'conclude') {
           return {
@@ -598,21 +618,13 @@ class Session {
   // MODIFIED: addFact to use assertProlog directly
   addFact(entity, type) {
     const prologFact = `${this.ontology.resolveSynonym(type)}(${this.ontology.resolveSynonym(entity)}).`;
-    try {
-      return this.assertProlog(prologFact);
-    } catch (error) {
-      return { success: false, error: error.message, symbolicRepresentation: prologFact };
-    }
+    return this.assertProlog(prologFact); // assertProlog now returns the report object directly
   }
   
   // MODIFIED: addRelationship to use assertProlog directly
   addRelationship(subject, relation, object) {
     const prologRelationship = `${this.ontology.resolveSynonym(relation)}(${this.ontology.resolveSynonym(subject)}, ${this.ontology.resolveSynonym(object)}).`;
-    try {
-      return this.assertProlog(prologRelationship);
-    } catch (error) {
-      return { success: false, error: error.message, symbolicRepresentation: prologRelationship };
-    }
+    return this.assertProlog(prologRelationship); // assertProlog now returns the report object directly
   }
 
   // NEW: Direct ontology management methods for Session
@@ -620,7 +632,8 @@ class Session {
     this.ontology.addType(type);
   }
 
-  addRelationship(relationship) {
+  // RENAMED: was `addRelationship(relationship)` which conflicted with the one above
+  defineRelationshipType(relationship) {
     this.ontology.addRelationship(relationship);
   }
 
