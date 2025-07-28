@@ -96,9 +96,8 @@ describe('Session', () => {
     const reasoning = await session.reason('Does tweety have wings?');
     expect(reasoning.answer).toBe('Yes');
     expect(reasoning.steps).toEqual([
-      'Translated: has_wings(tweety).',
-      'Executed: has_wings(tweety).',
-      'Result: true'
+      'Step 1: Translated to "has_wings(tweety)."',
+      'Result: Success'
     ]);
   });
 
