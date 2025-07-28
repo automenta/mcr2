@@ -192,6 +192,45 @@ describe('Session', () => {
     session = null;
   });
 
+  describe('Prolog Syntax Validation (`_isValidPrologSyntax`)', () => {
+    test('identifies valid Prolog fact', () => {
+      expect(session._isValidPrologSyntax('bird(tweety).')).toBe(true);
+    });
+
+    test('identifies valid Prolog rule', () => {
+      expect(session._isValidPrologSyntax('flies(X) :- bird(X).')).toBe(true);
+    });
+
+    test('identifies valid Prolog query', () => {
+      expect(session._isValidPrologSyntax('bird(X)')).toBe(true);
+    });
+
+    test('identifies valid Prolog query with multiple clauses', () => {
+      expect(session._isValidPrologSyntax('person(X), age(X, Y)')).toBe(true);
+    });
+
+    test('identifies invalid Prolog (malformed fact)', () => {
+      expect(session._isValidPrologSyntax('bird(tweety')).toBe(false);
+    });
+
+    test('identifies invalid Prolog (malformed rule)', () => {
+      expect(session._isValidPrologSyntax('flies(X) :- bird(X')).toBe(false);
+    });
+
+    test('identifies invalid Prolog (malformed query)', () => {
+      expect(session._isValidPologSyntax('bird(X')).toBe(false);
+    });
+
+    test('identifies empty string as invalid', () => {
+      expect(session._isValidPrologSyntax('')).toBe(false);
+    });
+
+    test('identifies non-string as invalid', () => {
+      expect(session._isValidPrologSyntax(123)).toBe(false);
+      expect(session._isValidPrologSyntax(null)).toBe(false);
+    });
+  });
+
   // Test for new assertProlog method
   test('assertProlog directly adds a Prolog clause and consults it', async () => {
     const result = session.assertProlog('mammal(dog).');
@@ -239,6 +278,43 @@ describe('Session', () => {
     const retractResult = session.retractProlog('mammal(dog).');
     expect(retractResult.success).toBe(false);
     expect(session.getKnowledgeGraph().prolog).toContain('bird(tweety).'); // Should not change
+  });
+
+  // NEW TESTS for removeFact and removeRelationship
+  test('removeFact removes a type fact from the knowledge graph', async () => {
+    session.assertProlog('mammal(cat).');
+    expect(session.getKnowledgeGraph().prolog).toContain('mammal(cat).');
+
+    const removeResult = session.removeFact('cat', 'mammal');
+    expect(removeResult.success).toBe(true);
+    expect(removeResult.message).toBe('Clause "mammal(cat)." retracted.');
+    expect(session.getKnowledgeGraph().prolog).not.toContain('mammal(cat).');
+  });
+
+  test('removeRelationship removes a relationship fact from the knowledge graph', async () => {
+    session.assertProlog('parent(john, mary).');
+    expect(session.getKnowledgeGraph().prolog).toContain('parent(john, mary).');
+
+    const removeResult = session.removeRelationship('john', 'parent', 'mary');
+    expect(removeResult.success).toBe(true);
+    expect(removeResult.message).toBe('Clause "parent(john, mary)." retracted.');
+    expect(session.getKnowledgeGraph().prolog).not.toContain('parent(john, mary).');
+  });
+
+  test('removeFact returns false if the fact does not exist', () => {
+    session.assertProlog('bird(tweety).');
+    const removeResult = session.removeFact('dog', 'mammal');
+    expect(removeResult.success).toBe(false);
+    expect(removeResult.message).toBe('Clause "mammal(dog)." not found.');
+    expect(session.getKnowledgeGraph().prolog).toContain('bird(tweety).'); // KB unchanged
+  });
+
+  test('removeRelationship returns false if the relationship does not exist', () => {
+    session.assertProlog('likes(alice, bob).');
+    const removeResult = session.removeRelationship('charlie', 'hates', 'david');
+    expect(removeResult.success).toBe(false);
+    expect(removeResult.message).toBe('Clause "hates(charlie, david)." not found.');
+    expect(session.getKnowledgeGraph().prolog).toContain('likes(alice, bob).'); // KB unchanged
   });
 
   // Test for modified assert (now uses assertProlog)
@@ -633,6 +709,80 @@ describe('Session', () => {
       expect(report.error).toContain('JSON failed miserably too'); // Last error should be propagated
       expect(directToProlog).toHaveBeenCalledTimes(1);
       expect(jsonToProlog).toHaveBeenCalledTimes(1);
+    });
+
+    test('session uses array of strategies in specified order', async () => {
+      const mcrForStrategyOrder = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });
+      const sessionForStrategyOrder = mcrForStrategyOrder.createSession({ 
+        translator: ['json', 'direct'], // Try JSON first, then direct
+        maxTranslationAttempts: 1, 
+        retryDelay: 10 
+      });
+
+      // Mock JSON strategy to fail once, then direct to succeed
+      jsonToProlog.mockImplementationOnce(() => { throw new Error('JSON failed, try direct'); });
+      directToProlog.mockImplementationOnce(async (text, llmClient, model, ontologyTerms, feedback, returnFullResponse) => {
+        const result = 'direct_success(data).';
+        const mockOpenAIResponse = {
+          choices: [{ message: { content: result } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        };
+        return returnFullResponse ? mockOpenAIResponse : result;
+      });
+
+      const report = await sessionForStrategyOrder.assert('Another complex input');
+      
+      expect(jsonToProlog).toHaveBeenCalledTimes(1);
+      expect(directToProlog).toHaveBeenCalledTimes(1);
+      expect(report.success).toBe(true);
+      expect(report.symbolicRepresentation).toBe('direct_success(data).');
+      expect(sessionForStrategyOrder.getKnowledgeGraph().prolog).toContain('direct_success(data).');
+    });
+
+    test('session uses single strategy from array without fallback if successful', async () => {
+      const mcrForSingleStrategy = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });
+      const sessionForSingleStrategy = mcrForSingleStrategy.createSession({ 
+        translator: ['json', 'direct'], // Try JSON first, then direct
+        maxTranslationAttempts: 1, 
+        retryDelay: 10 
+      });
+
+      // Mock JSON strategy to succeed immediately
+      jsonToProlog.mockImplementationOnce(async (text, llmClient, model, ontologyTerms, feedback, returnFullResponse) => {
+        const result = 'json_only_success(data).';
+        const mockOpenAIResponse = {
+          choices: [{ message: { content: result } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        };
+        return returnFullResponse ? mockOpenAIResponse : result;
+      });
+
+      const report = await sessionForSingleStrategy.assert('Yet another input');
+      
+      expect(jsonToProlog).toHaveBeenCalledTimes(1);
+      expect(directToProlog).not.toHaveBeenCalled(); // directToProlog should not be called
+      expect(report.success).toBe(true);
+      expect(report.symbolicRepresentation).toBe('json_only_success(data).');
+      expect(sessionForSingleStrategy.getKnowledgeGraph().prolog).toContain('json_only_success(data).');
+    });
+
+    test('translateWithRetry throws if all strategies in array fail', async () => {
+      const mcrForAllFail = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });
+      const sessionForAllFail = mcrForAllFail.createSession({ 
+        translator: ['json', 'direct'], 
+        maxTranslationAttempts: 1, 
+        retryDelay: 10 
+      });
+      
+      jsonToProlog.mockImplementationOnce(() => { throw new Error('JSON strategy failed'); });
+      directToProlog.mockImplementationOnce(() => { throw new Error('Direct strategy failed'); });
+      
+      const report = await sessionForAllFail.assert('Completely untranslatable input');
+      
+      expect(report.success).toBe(false);
+      expect(report.error).toContain('Direct strategy failed'); // Last error from the chain
+      expect(jsonToProlog).toHaveBeenCalledTimes(1);
+      expect(directToProlog).toHaveBeenCalledTimes(1);
     });
 
     test('custom translator function is retried multiple times with feedback', async () => {

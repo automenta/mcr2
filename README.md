@@ -155,6 +155,11 @@ Reasoning Task Result:
     *   `config.llm.client` (object, optional): A pre-initialized LLM client instance (e.g., `new OpenAI()`). Overrides `apiKey` and `provider`.
     *   `config.llm.model` (string, optional): LLM model name (default: 'gpt-3.5-turbo').
 *   `createSession(options)`: Creates and returns a new `Session` object.
+    *   `options.translator` (string or array of strings, optional): Specifies which translation strategy/strategies to use.
+        *   If a string (e.g., `'direct'`, `'json'`), it uses that strategy.
+        *   If an array of strings (e.g., `['json', 'direct']`), it attempts strategies in order, falling back to the next on failure.
+        *   If a function, it uses a custom translator function.
+        *   Default: `['direct', 'json']` (attempts 'direct' then 'json' on failure).
 *   `registerStrategy(name, strategyFn)`: Registers a custom translation strategy.
 *   `getLlmMetrics()`: Returns aggregated LLM usage metrics across all sessions created by this MCR instance.
     *   **Returns**: An object containing:
@@ -184,6 +189,10 @@ Represents an isolated reasoning context and its knowledge graph.
     *   **Returns**: An object containing `success`, `symbolicRepresentation`, and `error` (optional).
 *   `addRelationship(subject, relation, object)`: Adds a relationship fact (e.g., `loves(john, mary).`) to the knowledge graph, performing ontology validation.
     *   **Returns**: An object containing `success`, `symbolicRepresentation`, and `error` (optional).
+*   `removeFact(entity, type)`: Removes a simple type fact (e.g., `bird(tweety).`) from the knowledge graph.
+    *   **Returns**: An object `{ success: boolean, message: string }`.
+*   `removeRelationship(subject, relation, object)`: Removes a relationship fact (e.g., `loves(john, mary).`) from the knowledge graph.
+    *   **Returns**: An object `{ success: boolean, message: string }`.
 *   `addType(type)`: Adds a new entity type to the session's ontology.
 *   `defineRelationshipType(relationship)`: Adds a new relationship type to the session's ontology.
 *   `addConstraint(constraint)`: Adds a new constraint to the session's ontology.

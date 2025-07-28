@@ -120,16 +120,24 @@ class Session {
     if (typeof prologString !== 'string' || prologString.trim() === '') {
         return false;
     }
-    // Attempt to parse with Tau-Prolog to check syntax
+    const trimmedProlog = prologString.trim();
+    const session = pl.create();
     try {
-        const session = pl.create();
-        // Use a dummy consult or query to check syntax.
-        // For facts/rules, they usually end with a dot. For queries, they don't always.
-        // The most robust way for arbitrary Prolog is to attempt to parse.
-        // This is a simplification. A full syntax checker would be more complex.
-        session.consult(prologString); // Will throw if invalid clause
+        if (trimmedProlog.endsWith('.')) {
+            // It's a fact or rule, attempt to consult
+            session.consult(trimmedProlog);
+        } else {
+            // It's a query, attempt to parse as a query
+            // The simplest way to check a query's syntax is to prepare a dummy answer.
+            // Tau-Prolog's query method itself doesn't throw on syntax errors,
+            // but the internal parsing for `answer` will.
+            session.query(trimmedProlog);
+            // Calling an initial answer step will trigger parsing and throw on syntax errors
+            session.answer(() => {}); 
+        }
         return true;
     } catch (e) {
+        // Syntax error caught
         return false;
     }
   }
@@ -246,10 +254,18 @@ class Session {
       throw lastError; // All attempts for custom translator failed
     }
 
-    // Default strategies (direct, json) with self-correction and fallback
-    const strategyNames = (this.options.translator === 'json') ? ['json'] : ['direct', 'json'];
+    let strategiesToAttempt;
 
-    for (const strategyName of strategyNames) {
+    if (Array.isArray(this.options.translator)) {
+      strategiesToAttempt = this.options.translator;
+    } else if (typeof this.options.translator === 'string') {
+      strategiesToAttempt = [this.options.translator];
+    } else {
+      // Default fallback chain if no specific translator is defined
+      strategiesToAttempt = ['direct', 'json'];
+    }
+
+    for (const strategyName of strategiesToAttempt) {
       const currentTranslator = this.mcr.strategyRegistry[strategyName];
       if (!currentTranslator) continue;
 
@@ -625,6 +641,16 @@ class Session {
   addRelationship(subject, relation, object) {
     const prologRelationship = `${this.ontology.resolveSynonym(relation)}(${this.ontology.resolveSynonym(subject)}, ${this.ontology.resolveSynonym(object)}).`;
     return this.assertProlog(prologRelationship); // assertProlog now returns the report object directly
+  }
+
+  removeFact(entity, type) {
+    const prologFact = `${this.ontology.resolveSynonym(type)}(${this.ontology.resolveSynonym(entity)}).`;
+    return this.retractProlog(prologFact);
+  }
+
+  removeRelationship(subject, relation, object) {
+    const prologRelationship = `${this.ontology.resolveSynonym(relation)}(${this.ontology.resolveSynonym(subject)}, ${this.ontology.resolveSynonym(object)}).`;
+    return this.retractProlog(prologRelationship);
   }
 
   // NEW: Direct ontology management methods for Session
