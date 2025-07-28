@@ -17,9 +17,16 @@ class OntologyManager {
     }
   }
 
-  validateRule(head, bodyPredicates = []) {
-    this.validateFact(head);
-    bodyPredicates.forEach(p => this.validateFact(p));
+  validateRuleHead(head) {
+    if (!this.types.has(head) && !this.relationships.has(head)) {
+      throw new Error(`Rule head '${head}' not defined in ontology`);
+    }
+  }
+
+  validateRulePredicate(predicate) {
+    if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
+      throw new Error(`Rule predicate '${predicate}' not defined in ontology`);
+    }
   }
 
   validateConstraint(constraint) {

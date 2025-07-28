@@ -57,9 +57,13 @@ class Session {
   async assert(naturalLanguageText) {
     console.debug(`[${new Date().toISOString()}] assert called for: "${naturalLanguageText}"`);
     try {
-      const prologClause = await this.translateWithRetry(naturalLanguageText);
-      if (!prologClause) throw new Error('Translation resulted in empty clause');
+      const translationResult = await this.translateWithRetry(naturalLanguageText);
+      if (typeof translationResult !== 'string' || translationResult.error) {
+        throw new Error(`Translation failed: ${translationResult.error || 'Unknown error'}`);
+      }
+      if (!translationResult) throw new Error('Translation resulted in empty clause');
       
+      const prologClause = translationResult;
       // Ontology validation
       const parts = prologClause.split(':-');
       const head = parts[0].trim();
@@ -67,8 +71,12 @@ class Session {
       const headPredicate = head.split('(')[0].trim();
       
       if (body) {
-        const bodyPredicates = body.split(/,\s*/).map(p => p.split('(')[0].trim());
-        this.ontology.validateRule(headPredicate, bodyPredicates);
+        const bodyPredicates = body.split(/,\s*/).map(p => {
+          const pred = p.split('(')[0].trim();
+          this.ontology.validateRulePredicate(pred);
+          return pred;
+        });
+        this.ontology.validateRuleHead(headPredicate);
       } else {
         // For a fact: remove trailing dot and extract arguments
         const headWithoutDot = head.replace(/\.\s*$/, '');
@@ -113,46 +121,41 @@ class Session {
         const predicates = this.extractPredicates(prologQuery);
         predicates.forEach(p => this.ontology.validateFact(p));
       }
-      const answers = [];
-      const gatherAnswers = (ans) => {
-        if (ans === false) {
-          const success = answers.length > 0;
-          const bindings = success ? answers.join(', ') : null;
+      return new Promise((resolve, reject) => {
+        const answers = [];
+        const onAnswer = (answer) => {
+          if (answer === false) {
+            const success = answers.length > 0;
+            resolve({
+              success,
+              bindings: success ? answers.join(', ') : null,
+              explanation: [prologQuery],
+              confidence: success ? 1.0 : 0.0
+            });
+          } else {
+            answers.push(pl.format_answer(answer));
+            this.prologSession.answer(onAnswer);
+          }
+        };
+        this.prologSession.query(prologQuery);
+        this.prologSession.answer(onAnswer);
+      }).then(async (result) => {
+        if (!result.success && allowSubSymbolicFallback && this.mcr.llmClient) {
+          const llmAnswer = await this.mcr.llmClient.chat.completions.create({
+            model: 'gpt-3.5-turbo',
+            messages: [{ role: 'user', content: `Question: ${prologQuery}\nAnswer:` }],
+            temperature: 0.0,
+          });
+          const answer = llmAnswer.choices[0].message.content.trim();
           return { 
-            success, 
-            bindings, 
-            explanation: [prologQuery], 
-            confidence: success ? 1.0 : 0.0 
+            success: true, 
+            bindings: answer, 
+            explanation: ['Sub-symbolic fallback'], 
+            confidence: 0.7 
           };
         }
-        answers.push(pl.format_answer(ans));
-        this.prologSession.answer(gatherAnswers);
-      };
-      this.prologSession.query(prologQuery);
-      this.prologSession.answer(gatherAnswers);
-      
-      if (!answers.length && allowSubSymbolicFallback && this.mcr.llmClient) {
-        const llmAnswer = await this.mcr.llmClient.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: `Question: ${prologQuery}\nAnswer:` }],
-          temperature: 0.0,
-        });
-        const answer = llmAnswer.choices[0].message.content.trim();
-        return { 
-          success: true, 
-          bindings: answer, 
-          explanation: ['Sub-symbolic fallback'], 
-          confidence: 0.7 
-        };
-      }
-
-      const success = answers.length > 0;
-      return { 
-        success, 
-        bindings: success ? answers.join(', ') : null, 
-        explanation: [prologQuery], 
-        confidence: success ? 1.0 : 0.0 
-      };
+        return result;
+      });
     } catch (error) {
       console.error('Query error:', error);
       return { 
@@ -190,6 +193,9 @@ class Session {
       
       for (let step = 0; step < maxSteps; step++) {
         const prologQuery = await this.translateWithRetry(currentState);
+        if (typeof prologQuery !== 'string' || prologQuery.error) {
+          throw new Error(`Translation failed: ${prologQuery.error || 'Unknown error'}`);
+        }
         const result = await this.query(prologQuery, {allowSubSymbolicFallback: options.allowSubSymbolicFallback});
         
         steps.push(`Step ${step+1}: Translated to "${prologQuery}"`);
@@ -246,7 +252,8 @@ class Session {
     return {
       prolog: this.program.join('\n'),
       entities: Array.from(this.ontology.types),
-      relationships: Array.from(this.ontology.relationships)
+      relationships: Array.from(this.ontology.relationships),
+      constraints: Array.from(this.ontology.constraints)
     };
   }
 }
