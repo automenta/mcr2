@@ -148,17 +148,11 @@ class Session {
       const result = await this.query(prologQuery, options);
       return {
         answer: result.success ? 'Yes' : 'No',
-        steps: result.success 
-          ? [
-              `Translated: ${prologQuery}`,
-              `Executed: ${prologQuery}`,
-              `Result: ${result.bindings}`,
-              `Confidence: ${result.confidence}`
-            ]
-          : [
-              `Translated: ${prologQuery}`,
-              `Error: ${result.bindings || 'Unknown error'}`
-            ],
+        steps: [
+          `Translated: ${prologQuery}`,
+          ...(result.success ? result.explanation.map(e => `Executed: ${e}`) : []),
+          ...(result.success ? [`Result: ${result.bindings}`] : [`Error: ${result.bindings || 'Query failed'}`])
+        ],
         confidence: result.confidence
       };
     } catch (error) {
