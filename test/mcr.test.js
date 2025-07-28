@@ -97,7 +97,8 @@ describe('Session', () => {
     expect(reasoning.answer).toBe('Yes');
     expect(reasoning.steps).toEqual([
       'Step 1: Translated to "has_wings(tweety)."',
-      'Result: Success'
+      'Result: Success',
+      'Bindings: true'
     ]);
   });
 
