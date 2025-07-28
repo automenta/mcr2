@@ -8,6 +8,7 @@ class MCR {
     this.config = config;
     const llmConfig = config.llm || {};
     this.llmClient = null;
+    this.llmModel = llmConfig.model || 'gpt-3.5-turbo';
 
     if (llmConfig.provider) {
       switch (llmConfig.provider.toLowerCase()) {
@@ -31,11 +32,18 @@ class Session {
   constructor(mcr, options = {}) {
     this.mcr = mcr;
     this.options = options;
+    this.sessionId = options.sessionId || Date.now().toString(36);
     this.prologSession = pl.create();
     this.program = [];
-    this.translator = options.translator || directToProlog;
+    this.translator = this.resolveTranslator(options.translator);
     this.maxAttempts = options.translationAttempts || 2;
     this.ontology = new OntologyManager(options.ontology);
+  }
+  
+  resolveTranslator(translatorOption) {
+    if (typeof translatorOption === 'function') return translatorOption;
+    if (translatorOption === 'json') return require('./translation/jsonToProlog');
+    return require('./translation/directToProlog');
   }
   
   reloadOntology(newOntology) {
@@ -44,14 +52,23 @@ class Session {
     console.warn('Existing program not revalidated against new ontology');
   }
 
+  clear() {
+    this.program = [];
+    this.prologSession = pl.create();
+    if (this.options.ontology) {
+      this.ontology = new OntologyManager(this.options.ontology);
+    }
+    console.debug(`[${new Date().toISOString()}] [${this.sessionId}] Session cleared`);
+  }
+  
   async translateWithRetry(text) {
-    console.debug(`[${new Date().toISOString()}] translateWithRetry called for: "${text}"`);
+    console.debug(`[${new Date().toISOString()}] [${this.sessionId}] translateWithRetry: "${text}"`);
     let attempt = 0;
     let lastError;
     
     while (attempt < this.maxAttempts) {
       try {
-        return await this.translator(text, this.mcr.llmClient);
+        return await this.translator(text, this.mcr.llmClient, this.mcr.llmModel);
       } catch (error) {
         lastError = error;
         attempt++;
@@ -119,7 +136,7 @@ class Session {
   }
 
   async query(prologQuery, options = {}) {
-    console.debug(`[${new Date().toISOString()}] query called for: "${prologQuery}"`);
+    console.debug(`[${new Date().toISOString()}] [${this.sessionId}] query: "${prologQuery}"`);
     const { allowSubSymbolicFallback = false } = options;
     try {
       this.prologSession.consult(this.program.join('\n'));
@@ -151,7 +168,7 @@ class Session {
       }).then(async (result) => {
         if (!result.success && allowSubSymbolicFallback && this.mcr.llmClient) {
           const llmAnswer = await this.mcr.llmClient.chat.completions.create({
-            model: 'gpt-3.5-turbo',
+            model: this.mcr.llmModel,
             messages: [{ role: 'user', content: `Question: ${prologQuery}\nAnswer:` }],
             temperature: 0.0,
           });

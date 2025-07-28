@@ -1,4 +1,4 @@
-async function jsonToProlog(naturalLanguageText, llmClient) {
+async function jsonToProlog(naturalLanguageText, llmClient, model = 'gpt-3.5-turbo') {
   if (!llmClient) return '';
   
   try {
@@ -16,7 +16,7 @@ Input: ${naturalLanguageText}
 Output:`;
     
     const response = await llmClient.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.0,
       response_format: { type: "json_object" }

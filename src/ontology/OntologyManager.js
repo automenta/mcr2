@@ -8,13 +8,22 @@ class OntologyManager {
 
   validateFact(predicate, args = []) {
     if (predicate === '' || predicate.startsWith('_') || !/^[a-z][a-zA-Z0-9_]*$/.test(predicate)) {
-      throw new Error(`Invalid predicate name: ${predicate}`);
+      throw new Error(`Invalid predicate name: ${predicate}. Must start with lowercase letter and contain only alphanumeric characters`);
     }
     
-    // Validate predicate exists
     if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
-      throw new Error(`Predicate '${predicate}' is not defined in ontology`);
+      const suggestions = this.getSuggestions(predicate);
+      throw new Error(`Predicate '${predicate}' not in ontology. ${suggestions}`);
     }
+  }
+  
+  getSuggestions(predicate) {
+    const allTerms = [...this.types, ...this.relationships];
+    const similar = allTerms.filter(term => 
+      term.startsWith(predicate.substring(0, 3)) || 
+      term.includes(predicate)
+    );
+    return similar.length ? `Did you mean: ${similar.join(', ')}?` : 'No similar terms found';
   }
   
   addRule(rule) {
