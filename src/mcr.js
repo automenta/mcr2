@@ -336,7 +336,7 @@ class Session {
 
   isFinalResult(bindings) {
     // More robust termination detection
-    return bindings.some(b => 
+    return bindings && bindings.some(b => 
       b.includes('true') || 
       b.includes('false') ||
       b.includes('yes') ||

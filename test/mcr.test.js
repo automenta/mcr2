@@ -33,6 +33,10 @@ describe('Session', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
+    if (session) {
+      session.clear();
+    }
     session = null;
   });
 
@@ -148,12 +152,16 @@ describe('Session', () => {
       session.translator = require('../src/translation/directToProlog');
       jest.spyOn(console, 'error').mockImplementation();
       
+      const jsonToProlog = require('../src/translation/jsonToProlog');
+      const mockJson = jest.spyOn(jsonToProlog, 'default').mockResolvedValue('has_wings(X) :- bird(X).');
+      
       // Force an error in directToProlog
       jest.spyOn(session, 'translateWithRetry').mockRejectedValueOnce(new Error('forced error'));
       
       const report = await session.assert('Complex rule with multiple conditions');
       expect(report.symbolicRepresentation).toMatch(/:-/);
       
+      mockJson.mockRestore();
       session.translator = originalTranslator;
     });
   });
