@@ -37,6 +37,12 @@ class Session {
     this.maxAttempts = options.translationAttempts || 2;
     this.ontology = new OntologyManager(options.ontology);
   }
+  
+  reloadOntology(newOntology) {
+    this.ontology = new OntologyManager(newOntology);
+    // Revalidate existing program with new ontology
+    console.warn('Existing program not revalidated against new ontology');
+  }
 
   async translateWithRetry(text) {
     console.debug(`[${new Date().toISOString()}] translateWithRetry called for: "${text}"`);
@@ -122,18 +128,21 @@ class Session {
         predicates.forEach(p => this.ontology.validateFact(p));
       }
       return new Promise((resolve, reject) => {
-        const answers = [];
+        const bindings = [];
+        const proofSteps = [];
         const onAnswer = (answer) => {
           if (answer === false) {
-            const success = answers.length > 0;
+            const success = bindings.length > 0;
             resolve({
               success,
-              bindings: success ? answers.join(', ') : null,
-              explanation: [prologQuery],
+              bindings: success ? bindings : null,
+              explanation: proofSteps,
               confidence: success ? 1.0 : 0.0
             });
           } else {
-            answers.push(pl.format_answer(answer));
+            const formatted = pl.format_answer(answer);
+            bindings.push(formatted);
+            proofSteps.push(`Derived: ${formatted}`);
             this.prologSession.answer(onAnswer);
           }
         };
@@ -149,7 +158,7 @@ class Session {
           const answer = llmAnswer.choices[0].message.content.trim();
           return { 
             success: true, 
-            bindings: answer, 
+            bindings: [answer], 
             explanation: ['Sub-symbolic fallback'], 
             confidence: 0.7 
           };
@@ -237,11 +246,14 @@ class Session {
   }
 
   isFinalResult(bindings) {
-    // Simple heuristic: if bindings contain a true/false conclusion
-    return bindings.includes('true') || 
-           bindings.includes('false') ||
-           bindings.includes('yes') ||
-           bindings.includes('no');
+    // More robust termination detection
+    return bindings.some(b => 
+      b.includes('true') || 
+      b.includes('false') ||
+      b.includes('yes') ||
+      b.includes('no') ||
+      b.includes('conclusion(')
+    );
   }
 
   generateNextStep(originalTask, steps, bindings) {

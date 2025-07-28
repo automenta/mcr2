@@ -26,11 +26,7 @@ async function directToProlog(naturalLanguageText, llmClient) {
       return await jsonToProlog(naturalLanguageText, llmClient);
     } catch (fallbackError) {
       console.error('JSON translation also failed:', fallbackError.message);
-      return {
-        success: false,
-        error: fallbackError.message,
-        errorType: 'translation_failure'
-      };
+      throw new Error(`Translation failed: ${fallbackError.message}`);
     }
   }
 }

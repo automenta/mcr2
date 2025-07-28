@@ -7,7 +7,7 @@ class OntologyManager {
   }
 
   validateFact(predicate, args = []) {
-    if (predicate === '' || predicate.startsWith('_')) {
+    if (predicate === '' || predicate.startsWith('_') || !/^[a-z][a-zA-Z0-9_]*$/.test(predicate)) {
       throw new Error(`Invalid predicate name: ${predicate}`);
     }
     
@@ -15,6 +15,16 @@ class OntologyManager {
     if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
       throw new Error(`Predicate '${predicate}' is not defined in ontology`);
     }
+  }
+  
+  addRule(rule) {
+    // Validate head predicate
+    this.validateRuleHead(rule.head);
+    
+    // Validate all body predicates
+    rule.body.forEach(pred => this.validateRulePredicate(pred));
+    
+    this.rules.push(rule);
   }
 
   validateRuleHead(head) {
