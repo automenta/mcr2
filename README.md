@@ -107,6 +107,87 @@ async function main() {
   console.log(`  Explanation: ${naturalResult.explanation.join('\n    ')}`);
   console.log(`  Confidence: ${naturalResult.confidence}`);
   
+  // Demonstrating direct Prolog assertion and retraction
+  console.log('\n--- Direct Prolog Management ---');
+  const assertPrologResult = session.assertProlog('mammal(elephant).');
+  console.log(`Direct Assert 'mammal(elephant).': Success: ${assertPrologResult.success}`);
+  let directQueryResult = await session.query('mammal(X).');
+  console.log(`Query 'mammal(X).': Bindings: ${directQueryResult.bindings ? directQueryResult.bindings.join(', ') : 'None'}`);
+
+  const retractPrologResult = session.retractProlog('mammal(elephant).');
+  console.log(`Direct Retract 'mammal(elephant).': Success: ${retractPrologResult.success}`);
+  directQueryResult = await session.query('mammal(X).');
+  console.log(`Query 'mammal(X).': Bindings: ${directQueryResult.bindings ? directQueryResult.bindings.join(', ') : 'None'}`); // Should be None
+
+  // Demonstrating high-level fact/relationship/rule management
+  console.log('\n--- High-Level Fact/Relationship/Rule Management ---');
+  // First, add types to ontology for validation.
+  // Note: The session was created without an initial ontology, so we add terms dynamically.
+  session.addType('person');
+  session.defineRelationshipType('likes');
+  session.addType('food');
+  session.addSynonym('human', 'person');
+
+  const addFactResult = session.addFact('alice', 'person');
+  console.log(`Add Fact 'alice is a person': Success: ${addFactResult.success}`);
+  const addRelationshipResult = session.addRelationship('alice', 'likes', 'pizza');
+  console.log(`Add Relationship 'alice likes pizza': Success: ${addRelationshipResult.success}`);
+  const addRuleResult = session.addRule('eats_pizza(X) :- person(X), likes(X, pizza).');
+  console.log(`Add Rule 'eats_pizza(X) :- ...': Success: ${addRuleResult.success}`);
+
+  let kgCurrent = session.getKnowledgeGraph().prolog;
+  console.log(`Current KG (excerpt):\n${kgCurrent.split('\n').filter(l => l.includes('alice') || l.includes('pizza') || l.includes('eats_pizza')).join('\n')}`);
+
+  let queryPizza = await session.query('eats_pizza(alice).');
+  console.log(`Query 'eats_pizza(alice).': Success: ${queryPizza.success}`);
+
+  const removeRelationshipResult = session.removeRelationship('alice', 'likes', 'pizza');
+  console.log(`Remove Relationship 'alice likes pizza': Success: ${removeRelationshipResult.success}`);
+  queryPizza = await session.query('eats_pizza(alice).');
+  console.log(`Query 'eats_pizza(alice).': Success after removal: ${queryPizza.success}`); // Should be false
+
+  const removeFactResult = session.removeFact('alice', 'person');
+  console.log(`Remove Fact 'alice is a person': Success: ${removeFactResult.success}`);
+
+  const removeRuleResult = session.removeRule('eats_pizza(X) :- person(X), likes(X, pizza).');
+  console.log(`Remove Rule 'eats_pizza(X) :- ...': Success: ${removeRuleResult.success}`);
+
+
+  // Demonstrating Ontology Management (beyond initial setup)
+  console.log('\n--- Ontology Management ---');
+  session.addConstraint('unique_name');
+  console.log(`Added constraint 'unique_name'. Current constraints: ${Array.from(session.ontology.constraints).join(', ')}`);
+
+  // Demonstrating session state management
+  console.log('\n--- Session State Management ---');
+  session.clear();
+  console.log(`Session cleared. KG empty: ${session.getKnowledgeGraph().prolog === ''}`);
+
+  const dogAssertResult = await session.assert('The dog is happy.'); // Add a fact after clearing
+  console.log(`KG after assert: ${session.getKnowledgeGraph().prolog}`);
+  const savedState = session.saveState();
+  console.log(`Session state saved. Length: ${savedState.length}`);
+
+  const loadedSession = mcr.createSession();
+  loadedSession.loadState(savedState);
+  console.log(`State loaded into new session. KG: ${loadedSession.getKnowledgeGraph().prolog}`);
+
+  // Demonstrating reload ontology and revalidation
+  console.log('\n--- Ontology Reload and Revalidation ---');
+  session.addType('animal'); // Add 'animal' type to allow asserting 'animal(cat).'
+  session.assertProlog('animal(cat).');
+  console.log(`KG before ontology reload: ${session.getKnowledgeGraph().prolog}`);
+  
+  session.reloadOntology({
+    types: ['pet'], // 'animal' is removed, 'pet' is new
+    relationships: [],
+    constraints: [],
+    synonyms: {}
+  });
+  console.log(`KG after ontology reload (animal(cat) should be gone due to revalidation): ${session.getKnowledgeGraph().prolog}`); // Should be empty
+  console.log(`New ontology types: ${Array.from(session.ontology.types).join(', ')}`);
+
+
   // Reason about task (requires LLM)
   const reasoning = await session.reason('Determine if Tweety can migrate.', { allowSubSymbolicFallback: true });
   console.log(`\nReasoning Task Result:`);
@@ -115,6 +196,13 @@ async function main() {
   console.log(`  Confidence: ${reasoning.confidence}`);
 
   // NEW: Get global LLM usage metrics
+  console.log('\n--- Session LLM Metrics ---');
+  const sessionLlmMetrics = session.getLlmMetrics();
+  console.log(`Session LLM Calls: ${sessionLlmMetrics.calls}`);
+  console.log(`Session LLM Prompt Tokens: ${sessionLlmMetrics.promptTokens}`);
+  console.log(`Session LLM Completion Tokens: ${sessionLlmMetrics.completionTokens}`);
+  console.log(`Session LLM Latency (ms): ${sessionLlmMetrics.totalLatencyMs}`);
+
   const globalLlmMetrics = mcr.getLlmMetrics();
   console.log(`\nTotal LLM Calls: ${globalLlmMetrics.calls}`);
   console.log(`Total LLM Prompt Tokens: ${globalLlmMetrics.promptTokens}`);
@@ -143,6 +231,62 @@ Reasoning Task Result:
     Query Result: Success: true, Bindings: true, Confidence: 1
     Agent Action (2): Type: conclude, Content: Yes, Tweety can migrate.
   Confidence: 1.0
+
+--- Direct Prolog Management ---
+Direct Assert 'mammal(elephant).': Success: true
+Query 'mammal(X).': Bindings: X = elephant
+Direct Retract 'mammal(elephant).': Success: true
+Query 'mammal(X).': Bindings: None
+
+--- High-Level Fact/Relationship/Rule Management ---
+Add Fact 'alice is a person': Success: true
+Add Relationship 'alice likes pizza': Success: true
+Add Rule 'eats_pizza(X) :- ...': Success: true
+Current KG (excerpt):
+person(alice).
+likes(alice, pizza).
+eats_pizza(X) :- person(X), likes(X, pizza).
+Query 'eats_pizza(alice).': Success: true
+Remove Relationship 'alice likes pizza': Success: true
+Query 'eats_pizza(alice).': Success after removal: false
+Remove Fact 'alice is a person': Success: true
+Remove Rule 'eats_pizza(X) :- ...': Success: true
+
+--- Ontology Management ---
+Added constraint 'unique_name'. Current constraints: unique_name
+
+--- Session State Management ---
+Session cleared. KG empty: true
+KG after assert: happy(dog).
+Session state saved. Length: <some-number-e.g.-118>
+State loaded into new session. KG: happy(dog).
+
+--- Ontology Reload and Revalidation ---
+KG before ontology reload: animal(cat).
+KG after ontology reload (animal(cat) should be gone due to revalidation): 
+New ontology types: pet
+
+Reasoning Task Result:
+  Answer: Yes, Tweety can migrate.
+  Steps:
+    Agent Action (1): Type: query, Content: can_migrate(tweety)
+    Query Result: Success: true, Bindings: true, Confidence: 1
+    Agent Action (2): Type: conclude, Content: Yes, Tweety can migrate.
+  Confidence: 1.0
+
+Total LLM Calls: <some-number>
+Total LLM Prompt Tokens: <some-number>
+Total LLM Completion Tokens: <some-number>
+Total LLM Latency (ms): <some-number>
+````
+````javascript
+src/translation/agenticReasoning.js
+<<<<<<< SEARCH
+Examples:
+To assert a fact: {"type":"assert","content":"bird(tweety)."}
+To assert a rule: {"type":"assert","content":"flies(X) :- bird(X)."}
+To query the knowledge base: {"type":"query","content":"has_wings(tweety)."}
+To conclude the task: {"type":"conclude","answer":"Yes, Tweety can fly.","explanation":"Derived from bird(tweety) and flies(X) :- bird(X)."}
 ```
 
 ## 📦 API Reference

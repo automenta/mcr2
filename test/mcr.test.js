@@ -217,8 +217,8 @@ describe('Session', () => {
       expect(session._isValidPrologSyntax('flies(X) :- bird(X')).toBe(false);
     });
 
-    test('identifies invalid Prolog (malformed query)', () => {
-      expect(session._isValidPologSyntax('bird(X')).toBe(false);
+    test('identifies invalid Prolog (malformed query)', () => { // Corrected typo: _isValidPologSyntax to _isValidPrologSyntax
+      expect(session._isValidPrologSyntax('bird(X')).toBe(false);
     });
 
     test('identifies empty string as invalid', () => {
