@@ -68,7 +68,7 @@ describe('Session', () => {
   test('getKnowledgeGraph returns program as string', () => {
     expect(typeof session.getKnowledgeGraph()).toBe('string');
   });
-});
+  
   test('nquery translates natural language and executes query', async () => {
     await session.assert('Tweety is a bird');
     const result = await session.nquery('Is tweety a bird?');
@@ -87,3 +87,4 @@ describe('Session', () => {
       'Result: true'
     ]);
   });
+```
