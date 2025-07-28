@@ -653,6 +653,20 @@ class Session {
     return this.retractProlog(prologRelationship);
   }
 
+  addRule(prologRule) {
+    if (typeof prologRule !== 'string' || !prologRule.trim().endsWith('.') || !prologRule.includes(':-')) {
+      return { success: false, symbolicRepresentation: prologRule, error: 'Invalid Prolog rule. Must be a string ending with a dot and containing ":-".' };
+    }
+    return this.assertProlog(prologRule);
+  }
+
+  removeRule(prologRule) {
+    if (typeof prologRule !== 'string' || !prologRule.trim().endsWith('.') || !prologRule.includes(':-')) {
+      return { success: false, message: 'Invalid Prolog rule format for removal. Must be a string ending with a dot and containing ":-".' };
+    }
+    return this.retractProlog(prologRule);
+  }
+
   // NEW: Direct ontology management methods for Session
   addType(type) {
     this.ontology.addType(type);
