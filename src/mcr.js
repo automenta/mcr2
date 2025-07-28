@@ -70,7 +70,14 @@ class Session {
         const bodyPredicates = body.split(/,\s*/).map(p => p.split('(')[0].trim());
         this.ontology.validateRule(headPredicate, bodyPredicates);
       } else {
-        this.ontology.validateFact(headPredicate);
+        // For a fact: remove trailing dot and extract arguments
+        const headWithoutDot = head.replace(/\.\s*$/, '');
+        let argList = [];
+        if (headWithoutDot.includes('(') && headWithoutDot.endsWith(')')) {
+          const inner = headWithoutDot.substring(headWithoutDot.indexOf('(')+1, headWithoutDot.lastIndexOf(')'));
+          argList = inner.split(',').map(a => a.trim());
+        }
+        this.ontology.validateFact(headPredicate, argList);
       }
       
       this.program.push(prologClause);
@@ -176,60 +183,44 @@ class Session {
   async reason(taskDescription, options = {}) {
     console.debug(`[${new Date().toISOString()}] reason called for: "${taskDescription}"`);
     try {
-      // Break down complex tasks into smaller steps
       const steps = [];
       let currentState = taskDescription;
       let maxSteps = options.maxSteps || 5;
+      let accumulatedBindings = '';
       
-      while (true) {
+      for (let step = 0; step < maxSteps; step++) {
         const prologQuery = await this.translateWithRetry(currentState);
-        const result = await this.query(prologQuery, options);
+        const result = await this.query(prologQuery, {allowSubSymbolicFallback: options.allowSubSymbolicFallback});
         
-        steps.push(`Translated: ${prologQuery}`);
+        steps.push(`Step ${step+1}: Translated to "${prologQuery}"`);
+        steps.push(`Result: ${result.success ? 'Success' : 'No solution found'}`);
+        
         if (result.success) {
-          steps.push(`Executed: ${prologQuery}`);
-          steps.push(`Result: ${result.bindings}`);
+          steps.push(`Bindings: ${result.bindings}`);
+          accumulatedBindings = accumulatedBindings 
+            ? `${accumulatedBindings}, ${result.bindings}`
+            : result.bindings;
           
-          // Validate against ontology constraints
-          try {
-            if (this.options.ontology) {
-              this.ontology.validateConstraint(prologQuery);
-            }
-          } catch (constraintError) {
-            steps.push(`Constraint violation: ${constraintError.message}`);
+          if (this.isFinalResult(result.bindings)) {
             return {
-              answer: 'Constraint violation',
-              steps,
-              confidence: 0.0
-            };
-          }
-          
-          // Check if we've reached a final conclusion
-          if (this.isFinalResult(result.bindings) || steps.length >= maxSteps) {
-            return {
-              answer: result.success ? 'Yes' : 'No',
+              answer: result.bindings.includes('true') || result.bindings.includes('yes') ? 'Yes' : 'No',
               steps,
               confidence: result.confidence
             };
           }
-          
-          // Update state for next iteration
-          currentState = this.generateNextStep(
-            taskDescription, 
-            steps, 
-            result.bindings
-          );
-        } else {
-          return {
-            answer: 'No',
-            steps: [
-              ...steps,
-              `Error: No solution found for ${prologQuery}`
-            ],
-            confidence: 0.0
-          };
         }
+        
+        // Prepare next step prompt
+        currentState = `Current knowledge: ${accumulatedBindings || 'No facts yet'}\n` + 
+                       `Original task: ${taskDescription}`;
       }
+      
+      // If max steps reached without final answer
+      return {
+        answer: 'Inconclusive',
+        steps: [...steps, `Reached maximum steps (${maxSteps}) without conclusion`],
+        confidence: 0.3
+      };
     } catch (error) {
       return { 
         answer: 'Reasoning error', 
@@ -252,7 +243,11 @@ class Session {
   }
 
   getKnowledgeGraph() {
-    return this.program.join('\n');
+    return {
+      prolog: this.program.join('\n'),
+      entities: Array.from(this.ontology.types),
+      relationships: Array.from(this.ontology.relationships)
+    };
   }
 }
 

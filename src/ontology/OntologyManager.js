@@ -6,10 +6,12 @@ class OntologyManager {
     this.rules = ontology.rules || [];
   }
 
-  validateFact(predicate) {
+  validateFact(predicate, args = []) {
     if (predicate === '' || predicate.startsWith('_')) {
       throw new Error(`Invalid predicate name: ${predicate}`);
     }
+    
+    // Validate predicate exists
     if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
       throw new Error(`Predicate '${predicate}' is not defined in ontology`);
     }
