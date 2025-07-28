@@ -196,6 +196,7 @@ describe('Session', () => {
   test('assertProlog directly adds a Prolog clause and consults it', async () => {
     const result = session.assertProlog('mammal(dog).');
     expect(result.success).toBe(true);
+    expect(result.symbolicRepresentation).toBe('mammal(dog).');
     expect(session.getKnowledgeGraph().prolog).toContain('mammal(dog).');
 
     const queryResult = await session.query('mammal(X).');
@@ -203,16 +204,21 @@ describe('Session', () => {
     expect(queryResult.bindings).toContain('X = dog');
   });
 
-  test('assertProlog throws error for invalid Prolog clause', () => {
-    expect(() => session.assertProlog('invalid_clause')).toThrow('Invalid Prolog clause');
+  test('assertProlog returns error report for invalid Prolog clause', () => {
+    const result = session.assertProlog('invalid_clause');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid Prolog clause');
+    expect(result.symbolicRepresentation).toBe('invalid_clause');
     expect(session.getKnowledgeGraph().prolog).toBe('');
   });
 
-  test('assertProlog validates against ontology', () => {
+  test('assertProlog returns error report if validation against ontology fails', () => {
     const ontologySession = mcr.createSession({
       ontology: { types: ['person'] }
     });
-    expect(() => ontologySession.assertProlog('animal(cat).')).toThrow("Predicate 'animal' not in ontology.");
+    const result = ontologySession.assertProlog('animal(cat).');
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Predicate 'animal' not in ontology.");
   });
 
   // Test for new retractProlog method
