@@ -87,4 +87,31 @@ describe('Session', () => {
       'Result: true'
     ]);
   });
+
+  test('assert rejects fact not in ontology', async () => {
+    const session = mcr.createSession({
+      ontology: {
+        types: ['bird'],
+        relationships: ['has_wings']
+      }
+    });
+    
+    const report = await session.assert('Tweety is a fish');
+    expect(report.success).toBe(false);
+    expect(report.error).toContain('not defined in ontology');
+  });
+
+  test('assert rejects rule with invalid predicate', async () => {
+    const session = mcr.createSession({
+      ontology: {
+        types: ['bird'],
+        relationships: ['has_wings']
+      }
+    });
+    
+    const report = await session.assert('All fish can swim');
+    expect(report.success).toBe(false);
+    expect(report.error).toContain('not defined in ontology');
+  });
+  });
 ```

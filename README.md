@@ -21,6 +21,30 @@ MCR is built on a foundation designed for limitless growth.
 *   **Direct & Hybrid Reasoning**: Execute pure symbolic logic for speed and precision, or allow the system to fall back to the LLM for sub-symbolic queries when formal deduction yields no answer.
 *   **Rich, Explainable Outputs**: Queries don't just return an answer; they return the answer *and* the logical steps used to reach it, along with confidence scores.
 
+## 🏗️ Ontology Support
+
+MCR now supports ontologies to constrain your knowledge graph:
+
+```javascript
+const session = mcr.createSession({
+  ontology: {
+    types: ['bird', 'canary'],
+    relationships: ['has_wings', 'can_fly']
+  }
+});
+
+// This will succeed
+await session.assert('Tweety is a bird');
+
+// This will fail - 'fish' not in ontology
+await session.assert('Nemo is a fish');
+```
+
+The ontology ensures your knowledge graph maintains semantic consistency by:
+- Validating all asserted facts and rules
+- Preventing undefined predicates
+- Maintaining type consistency
+
 ## 🚀 Quick Start
 
 **1. Install:**

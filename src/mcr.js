@@ -1,6 +1,7 @@
 const pl = require('tau-prolog');
 const { OpenAI } = require('openai');
 const directToProlog = require('./translation/directToProlog');
+const OntologyManager = require('./ontology/OntologyManager');
 
 class MCR {
   constructor(config) {
@@ -34,6 +35,7 @@ class Session {
     this.program = [];
     this.translator = options.translator || directToProlog;
     this.maxAttempts = options.translationAttempts || 2;
+    this.ontology = new OntologyManager(options.ontology);
   }
 
   async translateWithRetry(text) {
@@ -55,6 +57,20 @@ class Session {
     try {
       const prologClause = await this.translateWithRetry(naturalLanguageText);
       if (!prologClause) throw new Error('Translation resulted in empty clause');
+      
+      // Ontology validation
+      const parts = prologClause.split(':-');
+      const head = parts[0].trim();
+      const body = parts.length > 1 ? parts[1].replace(/\.\s*$/, '').trim() : '';
+      const headPredicate = head.split('(')[0].trim();
+      
+      if (body) {
+        const bodyPredicates = body.split(/,\s*/).map(p => p.split('(')[0].trim());
+        this.ontology.validateRule(headPredicate, bodyPredicates);
+      } else {
+        this.ontology.validateFact(headPredicate);
+      }
+      
       this.program.push(prologClause);
       await this.prologSession.consult(this.program.join('\n'));
       return { 
@@ -67,7 +83,8 @@ class Session {
       return { 
         success: false, 
         symbolicRepresentation: null,
-        originalText: naturalLanguageText 
+        originalText: naturalLanguageText,
+        error: error.message
       };
     }
   }
