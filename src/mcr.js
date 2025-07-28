@@ -1,7 +1,7 @@
 const pl = require('tau-prolog');
-const { OpenAI } = require('openai');
 const OntologyManager = require('./ontology/OntologyManager');
-const agenticReasoning = require('./translation/agenticReasoning'); // NEW IMPORT
+const agenticReasoning = require('./translation/agenticReasoning');
+const { getLlmClient } = require('./llm');
 
 class MCR {
   constructor(config) {
@@ -15,23 +15,21 @@ class MCR {
       completionTokens: 0,
       totalTokens: 0,
       calls: 0,
-      totalLatencyMs: 0
+      totalLatencyMs: 0,
     };
     // Allow initial strategies to be passed or use defaults
     this.strategyRegistry = {
       direct: require('./translation/directToProlog'),
       json: require('./translation/jsonToProlog'),
       agentic: agenticReasoning, // NEW STRATEGY ADDED
-      ...(config.strategyRegistry || {}) // Merge custom strategies if provided
+      ...(config.strategyRegistry || {}), // Merge custom strategies if provided
     };
-    
+
     // MODIFIED: Flexible LLM client instantiation
     if (llmConfig.client) {
       this.llmClient = llmConfig.client;
-    } else if (llmConfig.apiKey && llmConfig.provider?.toLowerCase() === 'openai') {
-      this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
-    } else if (llmConfig.provider && llmConfig.provider.toLowerCase() !== 'openai') {
-      throw new Error(`Unsupported LLM provider: ${llmConfig.provider}. Please provide an 'llm.client' instance for custom providers.`);
+    } else if (llmConfig.provider) {
+      this.llmClient = getLlmClient(llmConfig);
     }
     // If no client or API key for OpenAI is provided, this.llmClient remains null,
     // allowing MCR to be used for symbolic-only operations.
