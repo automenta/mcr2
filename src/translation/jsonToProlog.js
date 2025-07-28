@@ -2,7 +2,11 @@ async function jsonToProlog(naturalLanguageText, llmClient, model = 'gpt-3.5-tur
   if (!llmClient) return '';
   
   try {
-    const prompt = `Translate the following into JSON representation, then convert to Prolog.
+    const ontologyHint = ontologyTerms.length ? 
+      `\n\nAvailable ontology terms: ${ontologyTerms.join(', ')}` : 
+      '';
+
+    const prompt = `Translate the following into JSON representation, then convert to Prolog.${ontologyHint}
 Output ONLY valid JSON with: 
 - "type" ("fact"/"rule"/"query")
 - "head" with "predicate" and "args" array

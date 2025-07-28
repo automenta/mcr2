@@ -113,4 +113,46 @@ describe('Session', () => {
     expect(report.success).toBe(false);
     expect(report.error).toContain('not defined in ontology');
   });
+
+  describe('Session State Management', () => {
+    test('save and load state', () => {
+      session.program = ['bird(tweety).'];
+      const state = session.saveState();
+      const newSession = mcr.createSession();
+      newSession.loadState(state);
+      expect(newSession.getKnowledgeGraph().prolog).toContain('bird(tweety).');
+    });
+
+    test('clear session', async () => {
+      await session.assert('Tweety is a bird');
+      session.clear();
+      expect(session.getKnowledgeGraph().prolog).toBe('');
+    });
+
+    test('reload ontology', async () => {
+      session.reloadOntology({
+        types: ['canary'],
+        relationships: ['has_color']
+      });
+      const report = await session.assert('Tweety has color yellow');
+      expect(report.symbolicRepresentation).toContain('has_color(tweety, yellow).');
+      expect(session.getKnowledgeGraph().prolog).toContain('has_color(tweety, yellow).');
+    });
+  });
+
+  describe('Translation Fallback', () => {
+    test('directToProlog falls back to jsonToProlog', async () => {
+      const originalTranslator = session.translator;
+      session.translator = require('../src/translation/directToProlog');
+      jest.spyOn(console, 'error').mockImplementation();
+      
+      // Force an error in directToProlog
+      jest.spyOn(session, 'translateWithRetry').mockRejectedValueOnce(new Error('forced error'));
+      
+      const report = await session.assert('Complex rule with multiple conditions');
+      expect(report.symbolicRepresentation).toMatch(/:-/);
+      
+      session.translator = originalTranslator;
+    });
+  });
 ```

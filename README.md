@@ -152,6 +152,35 @@ Represents an isolated reasoning context and its knowledge graph.
         *   `confidence`: Numerical confidence score
 *   `getKnowledgeGraph()`: Returns the entire knowledge graph as a Prolog string.
 
+## 🔄 Session Management
+
+MCR supports advanced session management:
+
+```javascript
+// Save session state
+const savedState = session.saveState();
+
+// Create new session with saved state
+const newSession = mcr.createSession();
+newSession.loadState(savedState);
+
+// Clear session knowledge
+session.clear();
+
+// Update ontology dynamically
+session.reloadOntology({
+  types: ['mammal', 'bird'],
+  relationships: ['eats', 'flies']
+});
+```
+
+## 🧩 Translation Strategies
+
+MCR uses a tiered translation approach:
+1. Direct-to-Prolog: Simple LLM prompt for conversion
+2. JSON-to-Prolog: Structured intermediate representation
+3. Auto-fallback: Automatically retries with JSON on failure
+
 ## 🧠 Core Concepts: The Path to AGI
 
 The simple API above is the interface to a powerful set of underlying concepts designed for future growth.

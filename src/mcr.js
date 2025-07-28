@@ -98,6 +98,28 @@ class Session {
     }
     console.debug(`[${new Date().toISOString()}] [${this.sessionId}] Session cleared`);
   }
+
+  saveState() {
+    return JSON.stringify({
+      program: this.program,
+      sessionId: this.sessionId,
+      ontology: {
+        types: Array.from(this.ontology.types),
+        relationships: Array.from(this.ontology.relationships),
+        constraints: Array.from(this.ontology.constraints),
+        synonyms: this.ontology.synonyms
+      }
+    });
+  }
+
+  loadState(state) {
+    const data = JSON.parse(state);
+    this.program = data.program;
+    this.sessionId = data.sessionId;
+    this.ontology = new OntologyManager(data.ontology);
+    this.prologSession = pl.create();
+    this.prologSession.consult(this.program.join('\n'));
+  }
   
   async translateWithRetry(text) {
     console.debug(`[${new Date().toISOString()}] [${this.sessionId}] translateWithRetry: "${text}"`);
