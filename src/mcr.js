@@ -1,7 +1,7 @@
 const pl = require('tau-prolog');
-const { OpenAI } = require('openai');
 const OntologyManager = require('./ontology/OntologyManager');
-const agenticReasoning = require('./translation/agenticReasoning'); // NEW IMPORT
+const agenticReasoning = require('./translation/agenticReasoning');
+const { getLlmClient } = require('./llm');
 
 class MCR {
   constructor(config) {
@@ -15,23 +15,21 @@ class MCR {
       completionTokens: 0,
       totalTokens: 0,
       calls: 0,
-      totalLatencyMs: 0
+      totalLatencyMs: 0,
     };
     // Allow initial strategies to be passed or use defaults
     this.strategyRegistry = {
       direct: require('./translation/directToProlog'),
       json: require('./translation/jsonToProlog'),
       agentic: agenticReasoning, // NEW STRATEGY ADDED
-      ...(config.strategyRegistry || {}) // Merge custom strategies if provided
+      ...(config.strategyRegistry || {}), // Merge custom strategies if provided
     };
-    
+
     // MODIFIED: Flexible LLM client instantiation
     if (llmConfig.client) {
       this.llmClient = llmConfig.client;
-    } else if (llmConfig.apiKey && llmConfig.provider?.toLowerCase() === 'openai') {
-      this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
-    } else if (llmConfig.provider && llmConfig.provider.toLowerCase() !== 'openai') {
-      throw new Error(`Unsupported LLM provider: ${llmConfig.provider}. Please provide an 'llm.client' instance for custom providers.`);
+    } else if (llmConfig.provider) {
+      this.llmClient = getLlmClient(llmConfig);
     }
     // If no client or API key for OpenAI is provided, this.llmClient remains null,
     // allowing MCR to be used for symbolic-only operations.
@@ -114,30 +112,16 @@ class Session {
     this.prologSession.consult(this.program.join('\n'));
   }
 
-  // NEW HELPER: Validate if a string is a syntactically valid Prolog clause/query.
-  // This is a basic check and doesn't guarantee semantic correctness or arity.
   _isValidPrologSyntax(prologString) {
     if (typeof prologString !== 'string' || prologString.trim() === '') {
         return false;
     }
     const trimmedProlog = prologString.trim();
-    const session = pl.create();
+    const session = pl.create(1000); // Limit the number of resolutions
     try {
-        if (trimmedProlog.endsWith('.')) {
-            // It's a fact or rule, attempt to consult
-            session.consult(trimmedProlog);
-        } else {
-            // It's a query, attempt to parse as a query
-            // The simplest way to check a query's syntax is to prepare a dummy answer.
-            // Tau-Prolog's query method itself doesn't throw on syntax errors,
-            // but the internal parsing for `answer` will.
-            session.query(trimmedProlog);
-            // Calling an initial answer step will trigger parsing and throw on syntax errors
-            session.answer(() => {}); 
-        }
+        session.consult(trimmedProlog);
         return true;
     } catch (e) {
-        // Syntax error caught
         return false;
     }
   }
@@ -307,7 +291,9 @@ class Session {
     const normalizedClause = prologClause.trim();
 
     try {
-      this.ontology.validatePrologClause(normalizedClause);
+      // Use tau-prolog's parser to validate the syntax
+      const session = pl.create();
+      session.consult(normalizedClause);
       this.program.push(normalizedClause);
       this._consultProgram(); // Re-consult the entire program
       return { success: true, symbolicRepresentation: normalizedClause };
@@ -408,15 +394,7 @@ class Session {
           } else {
             const formatted = pl.format_answer(answer);
             bindings.push(formatted);
-            
-            // Extract and format proof steps
-            const proof = answer.getProof();
-            if (proof) {
-              const formattedProof = this._formatPrologProof(proof);
-              proofSteps.push(`Derived: ${formatted} (Proof: ${formattedProof})`);
-            } else {
-              proofSteps.push(`Derived: ${formatted}`);
-            }
+            proofSteps.push(`Derived: ${formatted}`);
             this.prologSession.answer(onAnswer);
           }
         };
@@ -457,38 +435,6 @@ class Session {
     }
   }
 
-  // NEW HELPER: Formats Tau-Prolog proof steps for readability
-  _formatPrologProof(proofNode, indent = 0) {
-    if (!proofNode) return '';
-    const prefix = '  '.repeat(indent);
-    let result = '';
-
-    if (proofNode.rule) {
-      // For rules, show the rule name and its sub-proofs
-      result += `${prefix}Rule: ${proofNode.rule.id}`;
-      if (Object.keys(proofNode.unifies).length > 0) {
-        result += ` (Unifies: ${Object.entries(proofNode.unifies).map(([key, value]) => `${key}=${value}`).join(', ')})`;
-      }
-      result += '\n';
-    } else if (proofNode.predicate) {
-      // For goals/predicates, show the predicate and arguments
-      result += `${prefix}Goal: ${proofNode.predicate}(${proofNode.args.join(', ')})`;
-      if (Object.keys(proofNode.unifies).length > 0) {
-        result += ` (Unifies: ${Object.entries(proofNode.unifies).map(([key, value]) => `${key}=${value}`).join(', ')})`;
-      }
-      result += '\n';
-    } else if (proofNode.fact) {
-      // For facts, just show the fact
-      result += `${prefix}Fact: ${proofNode.fact}\n`;
-    }
-
-    if (proofNode.children && proofNode.children.length > 0) {
-      proofNode.children.forEach(child => {
-        result += this._formatPrologProof(child, indent + 1);
-      });
-    }
-    return result;
-  }
 
   async nquery(naturalLanguageQuery, options = {}) {
     this.logger.debug(`[${new Date().toISOString()}] nquery called for: "${naturalLanguageQuery}"`);

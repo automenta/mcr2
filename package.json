@@ -7,9 +7,13 @@
     "test": "jest"
   },
   "dependencies": {
+    "@langchain/anthropic": "^0.3.25",
+    "@langchain/core": "^0.3.66",
+    "@langchain/google-genai": "^0.2.16",
+    "@langchain/ollama": "^0.2.3",
     "dotenv": "^16.4.5",
     "openai": "^4.52.4",
-    "tau-prolog": "^0.3.3"
+    "tau-prolog": "^0.3.4"
   },
   "devDependencies": {
     "jest": "^30.0.0"

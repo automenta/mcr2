@@ -48,30 +48,34 @@ class OntologyManager {
   validatePrologClause(prologClause) {
     const parts = prologClause.split(':-');
     const head = parts[0].trim();
-    const body = parts.length > 1 ? parts[1].replace(/\.\s*$/, '').trim() : '';
+    const body = parts.length > 1 ? parts[1].replace(/\.\s*$/, '').trim() : null;
 
-    const headMatch = head.match(/^([a-z][a-zA-Z0-9_]*)\s*(\(([^)]*)\))?\s*$/);
+    const headMatch = head.match(/^([a-z][a-zA-Z0-9_]+)(?:\(([^)]+)\))?$/);
     if (!headMatch) {
       throw new Error(`Invalid Prolog head format: ${head}`);
     }
-    const headPredicate = headMatch[1];
-    const headArgs = headMatch[3] ? headMatch[3].split(',').map(a => a.trim()) : [];
 
-    this.validateFact(headPredicate, headArgs); // Use validateFact for the head of any clause
+    const headPredicate = headMatch[1];
+    const headArgs = headMatch[2] ? headMatch[2].split(',').map(a => a.trim()) : [];
+
+    this.validateFact(headPredicate, headArgs);
 
     if (body) {
-      const bodyPredicates = body.split(/,\s*/).map(p => {
-        const predMatch = p.match(/^([a-z][a-zA-Z0-9_]*)\s*(\(([^)]*)\))?\s*$/);
+      if (body.trim() === '') {
+        throw new Error('Rule body cannot be empty.');
+      }
+      const bodyPredicates = body.split(',');
+      bodyPredicates.forEach(p => {
+        const trimmedPredicate = p.trim();
+        const predMatch = trimmedPredicate.match(/^([a-z][a-zA-Z0-9_]+)(?:\(([^)]+)\))?$/);
         if (!predMatch) {
-          throw new Error(`Invalid Prolog body predicate format: ${p}`);
+          throw new Error(`Invalid Prolog body predicate format: ${trimmedPredicate}`);
         }
         const predName = predMatch[1];
-        // For body predicates, we only check if they are defined, not strict arity like facts
         if (!this.isDefined(predName)) {
-            const suggestions = this.getSuggestions(predName);
-            throw new Error(`Rule body predicate '${predName}' not defined in ontology. ${suggestions}`);
+          const suggestions = this.getSuggestions(predName);
+          throw new Error(`Rule body predicate '${predName}' not defined in ontology. ${suggestions}`);
         }
-        return predName;
       });
     }
   }
@@ -127,6 +131,10 @@ class OntologyManager {
 
   addConstraint(constraint) {
     this.constraints.add(constraint);
+  }
+
+  addSynonym(originalTerm, synonym) {
+    this.synonyms[originalTerm] = synonym;
   }
 }
 
