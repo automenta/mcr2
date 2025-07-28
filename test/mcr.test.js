@@ -61,7 +61,8 @@ jest.mock('../src/translation/agenticReasoning', () => createMockTranslator([
   // Sequence for 'Can tweety migrate?'
   async (feedback) => {
     if (feedback) throw new Error('Agent mock received unexpected feedback'); // Agent mock does not expect feedback for this path
-    return { type: 'query', content: 'can_migrate(tweety)' }; // Note: no dot for query in agentic
+    // In actual agenticReasoning, this content doesn't end with a dot as it's a query for internal use
+    return { type: 'query', content: 'can_migrate(tweety)' }; 
   },
   async (feedback) => {
     if (feedback) throw new Error('Agent mock received unexpected feedback');
@@ -87,6 +88,12 @@ jest.mock('../src/translation/agenticReasoning', () => createMockTranslator([
     }
     throw new Error('Agent mock expected feedback for JSON correction.');
   },
+  // Sequence for 'Reasoning max steps test'
+  async (feedback) => ({ type: 'query', content: 'step_one(X)' }),
+  async (feedback) => ({ type: 'assert', content: 'step_two_asserted.' }),
+  async (feedback) => ({ type: 'query', content: 'step_three(Y)' }),
+  async (feedback) => ({ type: 'query', content: 'step_four(Z)' }),
+  async (feedback) => ({ type: 'assert', content: 'step_five_asserted.' }),
 ]));
 
 
@@ -237,12 +244,34 @@ describe('Session', () => {
       'Tweety is a bird',
       expect.anything(),
       expect.any(String),
-      expect.any(Array)
+      expect.any(Array),
+      null, // Initial call, no feedback
+      true // Expecting full response
     );
     expect(assertPrologSpy).toHaveBeenCalledWith('bird(tweety).');
+    expect(report.success).toBe(true);
     expect(report.symbolicRepresentation).toBe('bird(tweety).');
     expect(session.getKnowledgeGraph().prolog).toContain('bird(tweety).');
     assertPrologSpy.mockRestore();
+  });
+
+  test('assert returns failure report if translation results in query', async () => {
+    directToProlog.mockResolvedValueOnce('bird(tweety)'); // Mock returns a query, not a fact/rule
+    const report = await session.assert('Is Tweety a bird?');
+    expect(report.success).toBe(false);
+    expect(report.error).toContain('Translation resulted in a query or invalid clause for assertion. Must be a fact or rule ending with a dot.');
+    expect(report.symbolicRepresentation).toBe('bird(tweety)');
+  });
+
+  test('assert returns failure report if assertProlog fails (e.g., ontology violation)', async () => {
+    const ontologySession = mcr.createSession({
+      ontology: { types: ['bird'] }
+    });
+    directToProlog.mockResolvedValueOnce('fish(nemo).'); // Valid Prolog, but violates ontology
+    const report = await ontologySession.assert('Nemo is a fish');
+    expect(report.success).toBe(false);
+    expect(report.error).toContain("Predicate 'fish' not in ontology.");
+    expect(report.symbolicRepresentation).toBe('fish(nemo).');
   });
 
   // Test for modified addFact (now uses assertProlog directly)
@@ -251,6 +280,7 @@ describe('Session', () => {
     const report = await session.addFact('tweety', 'bird');
     expect(assertPrologSpy).toHaveBeenCalledWith('bird(tweety).');
     expect(report.success).toBe(true);
+    expect(report.symbolicRepresentation).toBe('bird(tweety).');
     expect(session.getKnowledgeGraph().prolog).toContain('bird(tweety).');
     expect(directToProlog).not.toHaveBeenCalled(); // Crucial: ensures LLM is bypassed
     assertPrologSpy.mockRestore();
@@ -262,6 +292,7 @@ describe('Session', () => {
     const report = await session.addRelationship('john', 'loves', 'mary');
     expect(assertPrologSpy).toHaveBeenCalledWith('loves(john, mary).');
     expect(report.success).toBe(true);
+    expect(report.symbolicRepresentation).toBe('loves(john, mary).');
     expect(session.getKnowledgeGraph().prolog).toContain('loves(john, mary).');
     expect(directToProlog).not.toHaveBeenCalled(); // Crucial: ensures LLM is bypassed
     assertPrologSpy.mockRestore();
@@ -339,14 +370,23 @@ describe('Session', () => {
 
   test('reason handles assertion steps from agent', async () => {
     // Mock the agentic reasoning to first assert, then conclude
-    agenticReasoning.mockImplementationOnce(async () => ({ type: 'assert', content: 'new_fact(test).' }));
-    agenticReasoning.mockImplementationOnce(async () => ({ type: 'conclude', answer: 'New fact asserted.' }));
-
+    // The agenticReasoning mock already contains this sequence.
     const reasoning = await session.reason('Add a new fact');
     expect(reasoning.answer).toBe('New fact asserted.');
     expect(session.getKnowledgeGraph().prolog).toContain('new_fact(test).');
     expect(reasoning.steps[0]).toContain('Agent Action (1): Type: assert, Content: new_fact(test).');
     expect(reasoning.steps[1]).toContain('Assertion Result: Success: true, Clause: new_fact(test).');
+  });
+
+  test('reason returns inconclusive if max steps reached without a conclusion', async () => {
+    // Mock agenticReasoning to never conclude within 5 steps
+    // The mock for 'Reasoning max steps test' provides 5 query/assert actions.
+    const reasoning = await session.reason('Reasoning max steps test', { maxSteps: 5 });
+
+    expect(reasoning.answer).toBe('Inconclusive');
+    expect(reasoning.confidence).toBe(0.3);
+    expect(reasoning.steps.length).toBe(6); // 5 agent steps + 1 conclusion step
+    expect(reasoning.steps[reasoning.steps.length - 1]).toContain('Reached maximum steps (5) without conclusion.');
   });
 
   test('assert rejects fact not in ontology', async () => {
@@ -728,8 +768,9 @@ describe('Session', () => {
       expect(session.ontology.types.has('animal')).toBe(true);
     });
 
-    test('addRelationship adds a relationship to the ontology', () => {
-      session.addRelationship('parent_of');
+    // RENAMED TEST: was 'addRelationship adds a relationship to the ontology'
+    test('defineRelationshipType adds a relationship type to the ontology', () => {
+      session.defineRelationshipType('parent_of');
       expect(session.ontology.relationships.has('parent_of')).toBe(true);
     });
 
@@ -748,7 +789,7 @@ describe('Session', () => {
       expect(() => session.assertProlog('car(honda).')).not.toThrow();
       expect(session.getKnowledgeGraph().prolog).toContain('car(honda).');
 
-      session.addRelationship('drives');
+      session.defineRelationshipType('drives');
       expect(() => session.assertProlog('drives(john, car).')).not.toThrow();
       expect(session.getKnowledgeGraph().prolog).toContain('drives(john, car).');
     });

@@ -100,15 +100,19 @@ async function main() {
   
   // Query with natural language and fallback (requires LLM)
   // Note: if mcr was initialized without an LLM, this will fail or return default
-  const naturalResult = await session.nquery('Does tweety fly?', { allowSubSymbolicFallback: true });
-  console.log(`Natural language answer: ${naturalResult.success ? 'Yes' : 'No'`);
-  console.log(`Confidence: ${naturalResult.confidence}`);
+  const naturalResult = await session.nquery('Does tweety have wings?', { allowSubSymbolicFallback: true });
+  console.log(`Natural language query result:`);
+  console.log(`  Success: ${naturalResult.success}`);
+  console.log(`  Bindings: ${naturalResult.bindings ? naturalResult.bindings.join(', ') : 'None'}`);
+  console.log(`  Explanation: ${naturalResult.explanation.join('\n    ')}`);
+  console.log(`  Confidence: ${naturalResult.confidence}`);
   
   // Reason about task (requires LLM)
-  const reasoning = await session.reason('Can tweety migrate?', { allowSubSymbolicFallback: true });
-  console.log(`Reasoning: ${reasoning.answer}`);
-  console.log(`Steps: ${reasoning.steps.join('\n')}`);
-  console.log(`Confidence: ${reasoning.confidence}`);
+  const reasoning = await session.reason('Determine if Tweety can migrate.', { allowSubSymbolicFallback: true });
+  console.log(`\nReasoning Task Result:`);
+  console.log(`  Answer: ${reasoning.answer}`);
+  console.log(`  Steps:\n    ${reasoning.steps.join('\n    ')}`);
+  console.log(`  Confidence: ${reasoning.confidence}`);
 
   // NEW: Get global LLM usage metrics
   const globalLlmMetrics = mcr.getLlmMetrics();
@@ -125,15 +129,20 @@ main().catch(console.error);
 
 ```
 Prolog answer: Yes
-Confidence: 1
-Natural language answer: Yes
-Confidence: 0.7
-Reasoning: Yes
-Steps:
-Translated: can_migrate(tweety)
-Executed: can_migrate(tweety)
-Result: true
-Confidence: 1
+Confidence: 1.0
+Natural language query result:
+  Success: true
+  Bindings: true
+  Explanation: Derived: true
+  Confidence: 1.0
+
+Reasoning Task Result:
+  Answer: Yes, Tweety can migrate.
+  Steps:
+    Agent Action (1): Type: query, Content: can_migrate(tweety)
+    Query Result: Success: true, Bindings: true, Confidence: 1
+    Agent Action (2): Type: conclude, Content: Yes, Tweety can migrate.
+  Confidence: 1.0
 ```
 
 ## 📦 API Reference
@@ -146,6 +155,7 @@ Confidence: 1
     *   `config.llm.client` (object, optional): A pre-initialized LLM client instance (e.g., `new OpenAI()`). Overrides `apiKey` and `provider`.
     *   `config.llm.model` (string, optional): LLM model name (default: 'gpt-3.5-turbo').
 *   `createSession(options)`: Creates and returns a new `Session` object.
+*   `registerStrategy(name, strategyFn)`: Registers a custom translation strategy.
 *   `getLlmMetrics()`: Returns aggregated LLM usage metrics across all sessions created by this MCR instance.
     *   **Returns**: An object containing:
         *   `promptTokens`: Total tokens sent in prompts.
@@ -160,27 +170,50 @@ Confidence: 1
 
 Represents an isolated reasoning context and its knowledge graph.
 
-*   `async assert(naturalLanguageText)`: Translates a statement into a symbolic representation and integrates it into the knowledge graph. Returns an `integrationReport` detailing what was added.
+*   `async assert(naturalLanguageText)`: Translates a statement into a symbolic representation and integrates it into the knowledge graph.
     *   **Returns**: An object containing:
-        *   `success`: A boolean indicating whether the assertion succeeded
-        *   `symbolicRepresentation`: The Prolog clause added
-        *   `originalText`: The original natural language input
+        *   `success`: A boolean indicating whether the assertion succeeded.
+        *   `symbolicRepresentation`: The Prolog clause that was attempted or added.
+        *   `originalText`: The original natural language input.
+        *   `error` (optional): Error message if assertion failed.
+*   `assertProlog(prologClause)`: Directly asserts a Prolog clause into the knowledge graph with ontology validation.
+    *   **Returns**: An object containing `success`, `symbolicRepresentation`, and `error` (optional).
+*   `retractProlog(prologClause)`: Removes a specific Prolog clause from the knowledge graph.
+    *   **Returns**: An object `{ success: boolean, message: string }`.
+*   `addFact(entity, type)`: Adds a simple type fact (e.g., `bird(tweety).`) to the knowledge graph, performing ontology validation.
+    *   **Returns**: An object containing `success`, `symbolicRepresentation`, and `error` (optional).
+*   `addRelationship(subject, relation, object)`: Adds a relationship fact (e.g., `loves(john, mary).`) to the knowledge graph, performing ontology validation.
+    *   **Returns**: An object containing `success`, `symbolicRepresentation`, and `error` (optional).
+*   `addType(type)`: Adds a new entity type to the session's ontology.
+*   `defineRelationshipType(relationship)`: Adds a new relationship type to the session's ontology.
+*   `addConstraint(constraint)`: Adds a new constraint to the session's ontology.
+*   `addSynonym(originalTerm, synonym)`: Adds a new synonym mapping to the session's ontology.
 *   `async query(prologQuery, options)`: Executes a Prolog query against the knowledge graph.
     *   **Options**: 
-        *   `allowSubSymbolicFallback` (boolean): Enable fallback to LLM if symbolic query fails
+        *   `allowSubSymbolicFallback` (boolean): Enable fallback to LLM if symbolic query fails.
     *   **Returns**: An object containing:
-        *   `success`: Boolean indicating query success
-        *   `bindings`: Variable bindings or LLM response
-        *   `explanation`: Array of Prolog queries used
-        *   `confidence`: Numerical confidence score (0.0-1.0)
+        *   `success`: Boolean indicating query success.
+        *   `bindings`: Variable bindings or LLM response (can be `null`).
+        *   `explanation`: Array of reasoning steps.
+        *   `confidence`: Numerical confidence score (0.0-1.0).
 *   `async nquery(naturalLanguageQuery, options)`: Translates natural language question to Prolog and executes query.
-    *   **Returns**: Same object as `query()`
-*   `async reason(taskDescription, options)`: Uses translation and query to provide natural language reasoning.
+    *   **Returns**: Same object as `query()`.
+*   `async reason(taskDescription, options)`: Uses an agentic loop for multi-step reasoning to achieve a higher-level goal.
+    *   **Options**:
+        *   `maxSteps` (number): Maximum number of reasoning steps the agent can take (default: 5).
+        *   `allowSubSymbolicFallback` (boolean): Enable fallback to LLM for queries within the reasoning process.
     *   **Returns**: An object containing:
-        *   `answer`: 'Yes' or 'No' based on query result
-        *   `steps`: Array of reasoning steps
-        *   `confidence`: Numerical confidence score
-*   `getKnowledgeGraph()`: Returns the entire knowledge graph as a Prolog string.
+        *   `answer`: The final natural language answer (e.g., 'Yes', 'No', 'Inconclusive').
+        *   `steps`: Array of natural language descriptions of reasoning steps.
+        *   `confidence`: Numerical confidence score.
+*   `getKnowledgeGraph(format = 'prolog')`: Returns the entire knowledge graph.
+    *   `format`: 'prolog' (default) for a string, or 'json' for a structured object.
+*   `saveState()`: Returns a JSON string representing the current session's state (program, ontology, sessionId).
+*   `loadState(state)`: Loads a session's state from a JSON string.
+*   `clear()`: Clears the session's program and resets its Prolog session.
+*   `reloadOntology(newOntology)`: Replaces the current ontology and revalidates the existing program against it.
+*   `getLlmMetrics()`: Returns LLM usage metrics specific to this session.
+    *   **Returns**: An object identical in structure to `MCR.getLlmMetrics()`, but specific to the session.
 
 ## 🔄 Session Management
 
