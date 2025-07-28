@@ -950,4 +950,69 @@ describe('Session', () => {
       expect(session.getKnowledgeGraph().prolog).toContain('drives(john, car).');
     });
   });
+
+  describe('Rule Management Methods', () => {
+    test('addRule adds a Prolog rule to the knowledge graph', async () => {
+      const rule = 'flies(X) :- bird(X).';
+      const result = session.addRule(rule);
+      expect(result.success).toBe(true);
+      expect(result.symbolicRepresentation).toBe(rule);
+      expect(session.getKnowledgeGraph().prolog).toContain(rule);
+
+      session.assertProlog('bird(tweety).');
+      const queryResult = await session.query('flies(tweety).');
+      expect(queryResult.success).toBe(true);
+      expect(queryResult.bindings).toContain('true');
+    });
+
+    test('addRule returns error report for invalid rule format', () => {
+      const result = session.addRule('invalid_rule');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid Prolog rule. Must be a string ending with a dot and containing ":-".');
+      expect(session.getKnowledgeGraph().prolog).toBe(''); // No rule added
+    });
+
+    test('addRule returns error report if validation against ontology fails', () => {
+      const ontologySession = mcr.createSession({
+        ontology: { types: ['person'] } // 'bird' and 'flies' not defined
+      });
+      const rule = 'flies(X) :- bird(X).';
+      const result = ontologySession.addRule(rule);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Predicate 'flies' not defined in ontology.");
+    });
+
+    test('removeRule removes a specific Prolog rule', async () => {
+      session.addRule('flies(X) :- bird(X).');
+      session.assertProlog('bird(tweety).');
+      expect(session.getKnowledgeGraph().prolog).toContain('flies(X) :- bird(X).');
+      
+      const queryBeforeRetract = await session.query('flies(tweety).');
+      expect(queryBeforeRetract.success).toBe(true);
+
+      const removeResult = session.removeRule('flies(X) :- bird(X).');
+      expect(removeResult.success).toBe(true);
+      expect(removeResult.message).toBe('Clause "flies(X) :- bird(X)." retracted.');
+      expect(session.getKnowledgeGraph().prolog).not.toContain('flies(X) :- bird(X).');
+
+      const queryAfterRetract = await session.query('flies(tweety).');
+      expect(queryAfterRetract.success).toBe(false); // Rule should be gone
+    });
+
+    test('removeRule returns false if rule not found', () => {
+      session.addRule('flies(X) :- bird(X).');
+      const removeResult = session.removeRule('walks(X) :- mammal(X).');
+      expect(removeResult.success).toBe(false);
+      expect(removeResult.message).toBe('Clause "walks(X) :- mammal(X)." not found.');
+      expect(session.getKnowledgeGraph().prolog).toContain('flies(X) :- bird(X).'); // KB unchanged
+    });
+
+    test('removeRule returns error for invalid rule format', () => {
+      session.addRule('flies(X) :- bird(X).');
+      const result = session.removeRule('invalid_rule_format');
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('Invalid Prolog rule format for removal.');
+      expect(session.getKnowledgeGraph().prolog).toContain('flies(X) :- bird(X).'); // KB unchanged
+    });
+  });
 });
