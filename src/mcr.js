@@ -9,16 +9,23 @@ class MCR {
     const llmConfig = config.llm || {};
     this.llmClient = null;
     this.llmModel = llmConfig.model || 'gpt-3.5-turbo';
-
-    if (llmConfig.provider) {
+    
+    if (llmConfig.client) {
+      this.llmClient = llmConfig.client;  // Allow pre-configured client
+    } else if (llmConfig.provider) {
       switch (llmConfig.provider.toLowerCase()) {
-        case 'openai': {
-          if (!llmConfig.apiKey) throw new Error('OpenAI API key is required');
+        case 'openai':
+          if (!llmConfig.apiKey) throw new Error('OpenAI API key required');
           this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
           break;
-        }
+        case 'google':
+          // Add Google client initialization
+          break;
+        case 'anthropic':
+          // Add Anthropic client initialization
+          break;
         default:
-          console.warn(`Unsupported LLM provider: ${llmConfig.provider}`);
+          throw new Error(`Unsupported provider: ${llmConfig.provider}`);
       }
     }
   }
@@ -52,20 +59,24 @@ class MCR {
 class Session {
   constructor(mcr, options = {}) {
     this.mcr = mcr;
-    this.options = options;
-    this.sessionId = options.sessionId || Date.now().toString(36);
+    this.options = {
+      retryDelay: 500,
+      maxTranslationAttempts: 2,
+      ...options  // User options override defaults
+    };
+    this.sessionId = this.options.sessionId || Date.now().toString(36);
     this.prologSession = pl.create();
     this.program = [];
-    this.translator = this.resolveTranslator(options.translator);
-    this.maxAttempts = options.translationAttempts || 2;
-    this.retryDelay = options.retryDelay || 500;
-    this.ontology = new OntologyManager(options.ontology);
-  }
-  
-  resolveTranslator(translatorOption) {
-    if (typeof translatorOption === 'function') return translatorOption;
-    if (translatorOption === 'json') return require('./translation/jsonToProlog');
-    return require('./translation/directToProlog');
+    if (typeof this.options.translator === 'function') {
+      this.translator = this.options.translator;
+    } else {
+      this.translator = this.options.translator === 'json' 
+        ? require('./translation/jsonToProlog')
+        : require('./translation/directToProlog');
+    }
+    this.maxAttempts = this.options.maxTranslationAttempts;
+    this.retryDelay = this.options.retryDelay;
+    this.ontology = new OntologyManager(this.options.ontology);
   }
   
   reloadOntology(newOntology) {
@@ -335,13 +346,11 @@ class Session {
   }
 
   isFinalResult(bindings) {
-    // More robust termination detection
-    return bindings && bindings.some(b => 
-      b.includes('true') || 
-      b.includes('false') ||
-      b.includes('yes') ||
-      b.includes('no') ||
-      b.includes('conclusion(')
+    if (!bindings) return false;
+    
+    return bindings.some(b => 
+      ['true', 'false', 'yes', 'no', 'conclusion(']
+        .some(term => b.includes(term))
     );
   }
 
@@ -366,6 +375,14 @@ class Session {
       relationships: Array.from(this.ontology.relationships),
       constraints: Array.from(this.ontology.constraints)
     };
+  }
+  
+  addFact(entity, type) {
+    return this.assert(`${entity} is a ${type}`);
+  }
+  
+  addRelationship(subject, relation, object) {
+    return this.assert(`${subject} ${relation} ${object}`);
   }
 }
 
