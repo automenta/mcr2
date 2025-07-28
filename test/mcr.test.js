@@ -145,6 +145,7 @@ describe('Session', () => {
     // Reset mocks for each test
     directToProlog.mockClear();
     jsonToProlog.mockClear();
+    // MODIFIED: Clear the new mock
     agenticReasoning.mockClear();
   });
 
