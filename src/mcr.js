@@ -1,6 +1,5 @@
 const pl = require('tau-prolog');
 const { OpenAI } = require('openai');
-const directToProlog = require('./translation/directToProlog');
 const OntologyManager = require('./ontology/OntologyManager');
 
 class MCR {
@@ -9,9 +8,13 @@ class MCR {
     const llmConfig = config.llm || {};
     this.llmClient = null;
     this.llmModel = llmConfig.model || 'gpt-3.5-turbo';
+    this.strategyRegistry = {
+      direct: require('./translation/directToProlog'),
+      json: require('./translation/jsonToProlog')
+    };
     
     if (llmConfig.client) {
-      this.llmClient = llmConfig.client;  // Allow pre-configured client
+      this.llmClient = llmConfig.client;
     } else if (llmConfig.provider) {
       switch (llmConfig.provider.toLowerCase()) {
         case 'openai':
@@ -19,10 +22,8 @@ class MCR {
           this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
           break;
         case 'google':
-          // Add Google client initialization
           break;
         case 'anthropic':
-          // Add Anthropic client initialization
           break;
         default:
           throw new Error(`Unsupported provider: ${llmConfig.provider}`);
@@ -32,6 +33,13 @@ class MCR {
 
   createSession(options = {}) {
     return new Session(this, options);
+  }
+
+  registerStrategy(name, strategyFn) {
+    if (typeof strategyFn !== 'function') {
+      throw new Error('Strategy must be a function');
+    }
+    this.strategyRegistry[name] = strategyFn;
   }
   saveState() {
     return JSON.stringify({
@@ -62,18 +70,23 @@ class Session {
     this.options = {
       retryDelay: 500,
       maxTranslationAttempts: 2,
-      ...options  // User options override defaults
+      ...options
     };
-    this.sessionId = this.options.sessionId || Date.now().toString(36);
+    this.sessionId = options.sessionId || Date.now().toString(36);
     this.prologSession = pl.create();
     this.program = [];
-    if (typeof this.options.translator === 'function') {
-      this.translator = this.options.translator;
+    this.logger = options.logger || console;
+    
+    if (typeof options.translator === 'function') {
+      this.translator = options.translator;
     } else {
-      this.translator = this.options.translator === 'json' 
-        ? require('./translation/jsonToProlog')
-        : require('./translation/directToProlog');
+      const strategyName = options.translator || 'direct';
+      this.translator = this.mcr.strategyRegistry[strategyName];
+      if (!this.translator) {
+        throw new Error(`Unknown translation strategy: ${strategyName}`);
+      }
     }
+    
     this.maxAttempts = this.options.maxTranslationAttempts;
     this.retryDelay = this.options.retryDelay;
     this.ontology = new OntologyManager(this.options.ontology);

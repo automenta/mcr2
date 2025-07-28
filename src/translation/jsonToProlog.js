@@ -1,11 +1,10 @@
-async function jsonToProlog(naturalLanguageText, llmClient, model = 'gpt-3.5-turbo') {
+const { createOntologyHint, convertJsonToProlog } = require('./translationUtils');
+
+async function jsonToProlog(naturalLanguageText, llmClient, model = 'gpt-3.5-turbo', ontologyTerms = []) {
   if (!llmClient) return '';
   
   try {
-    const ontologyHint = ontologyTerms.length ? 
-      `\n\nAvailable ontology terms: ${ontologyTerms.join(', ')}` : 
-      '';
-
+    const ontologyHint = createOntologyHint(ontologyTerms);
     const prompt = `Translate the following into JSON representation, then convert to Prolog.${ontologyHint}
 Output ONLY valid JSON with: 
 - "type" ("fact"/"rule"/"query")
@@ -27,21 +26,7 @@ Output:`;
     });
     
     const jsonOutput = JSON.parse(response.choices[0].message.content.trim());
-    
-    // Convert JSON to Prolog
-    if (jsonOutput.type === 'fact') {
-      return `${jsonOutput.head.predicate}(${jsonOutput.head.args.join(', ')}).`;
-    } 
-    else if (jsonOutput.type === 'rule') {
-      const bodyStr = jsonOutput.body.map(cond => 
-        `${cond.predicate}(${cond.args.join(', ')})`
-      ).join(', ');
-      return `${jsonOutput.head.predicate}(${jsonOutput.head.args.join(', ')}) :- ${bodyStr}.`;
-    }
-    else if (jsonOutput.type === 'query') {
-      return `${jsonOutput.head.predicate}(${jsonOutput.head.args.join(', ')})`;
-    }
-    return '';
+    return convertJsonToProlog(jsonOutput);
   } catch (error) {
     console.error('JSON translation error:', error);
     throw error;

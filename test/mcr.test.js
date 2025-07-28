@@ -22,6 +22,13 @@ describe('MCR', () => {
     const session = mcr.createSession();
     expect(session).toBeInstanceOf(Session);
   });
+
+  test('registers custom strategy', () => {
+    const mcr = new MCR({});
+    const mockStrategy = jest.fn();
+    mcr.registerStrategy('custom', mockStrategy);
+    expect(mcr.strategyRegistry.custom).toBe(mockStrategy);
+  });
 });
 
 describe('Session', () => {
@@ -119,6 +126,31 @@ describe('Session', () => {
     const report = await session.assert('All fish can swim');
     expect(report.success).toBe(false);
     expect(report.error).toContain('not defined in ontology');
+  });
+
+  test('uses custom translation strategy', async () => {
+    const customTranslator = jest.fn().mockResolvedValue('custom(tweety).');
+    const mcr = new MCR({});
+    mcr.registerStrategy('custom', customTranslator);
+    const session = mcr.createSession({ translator: 'custom' });
+    
+    await session.assert('Test input');
+    expect(customTranslator).toHaveBeenCalled();
+    expect(session.getKnowledgeGraph().prolog).toContain('custom(tweety).');
+  });
+
+  test('uses custom logger', async () => {
+    const mockLogger = { error: jest.fn() };
+    const mcr = new MCR({});
+    const session = mcr.createSession({ logger: mockLogger });
+    
+    const jsonToProlog = require('../src/translation/jsonToProlog');
+    const mockJson = jest.spyOn(jsonToProlog, 'default').mockRejectedValue(new Error('Test error'));
+    
+    await session.assert('Invalid input');
+    expect(mockLogger.error).toHaveBeenCalled();
+    
+    mockJson.mockRestore();
   });
 
   describe('Session State Management', () => {

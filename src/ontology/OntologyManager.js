@@ -11,22 +11,28 @@ class OntologyManager {
     return this.synonyms[term] || term;
   }
 
+  isValidPredicate(predicate) {
+    return /^[a-z][a-zA-Z0-9_]*$/.test(predicate);
+  }
+
+  isDefined(predicate) {
+    return this.types.has(predicate) || this.relationships.has(predicate);
+  }
+
   validateFact(predicate, args = []) {
     predicate = this.resolveSynonym(predicate);
     
-    // Validate predicate structure
-    if (!/^[a-z][a-zA-Z0-9_]*$/.test(predicate)) {
+    if (!this.isValidPredicate(predicate)) {
       throw new Error(`Invalid predicate: ${predicate}. Must follow Prolog naming conventions`);
     }
     
-    // Validate argument types
     if (this.types.has(predicate)) {
       if (args.length !== 1) {
         throw new Error(`${predicate} expects 1 argument, got ${args.length}`);
       }
     }
     
-    if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
+    if (!this.isDefined(predicate)) {
       const suggestions = this.getSuggestions(predicate);
       throw new Error(`Predicate '${predicate}' not in ontology. ${suggestions}`);
     }
