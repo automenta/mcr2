@@ -70,11 +70,22 @@ The core workflow is to create a session, populate its knowledge graph, and then
 // main.js
 require('dotenv').config();
 const { MCR } = require('model-context-reasoner');
+const { OpenAI } = require('openai'); // NEW: Import OpenAI client if using it directly
 
 async function main() {
+  // Option 1: Configure MCR with API Key (Recommended for OpenAI)
   const mcr = new MCR({
     llm: { provider: 'openai', apiKey: process.env.OPENAI_API_KEY }
   });
+
+  // Option 2: Provide a pre-initialized LLM client (for any provider conforming to OpenAI's chat API)
+  // const customLlmClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); // Example for OpenAI
+  // const mcr = new MCR({
+  //   llm: { client: customLlmClient, model: 'gpt-4o-mini' } // Specify model if not 'gpt-3.5-turbo'
+  // });
+
+  // Option 3: Use MCR without LLM capabilities (for symbolic reasoning only)
+  // const mcr = new MCR({});
   
   const session = mcr.createSession();
   
@@ -87,16 +98,24 @@ async function main() {
   console.log(`Prolog answer: ${prologResult.success ? 'Yes' : 'No'}`);
   console.log(`Confidence: ${prologResult.confidence}`);
   
-  // Query with natural language and fallback
+  // Query with natural language and fallback (requires LLM)
+  // Note: if mcr was initialized without an LLM, this will fail or return default
   const naturalResult = await session.nquery('Does tweety fly?', { allowSubSymbolicFallback: true });
-  console.log(`Natural language answer: ${naturalResult.success ? 'Yes' : 'No'}`);
+  console.log(`Natural language answer: ${naturalResult.success ? 'Yes' : 'No'`);
   console.log(`Confidence: ${naturalResult.confidence}`);
   
-  // Reason about task
+  // Reason about task (requires LLM)
   const reasoning = await session.reason('Can tweety migrate?', { allowSubSymbolicFallback: true });
   console.log(`Reasoning: ${reasoning.answer}`);
   console.log(`Steps: ${reasoning.steps.join('\n')}`);
   console.log(`Confidence: ${reasoning.confidence}`);
+
+  // NEW: Get global LLM usage metrics
+  const globalLlmMetrics = mcr.getLlmMetrics();
+  console.log(`\nTotal LLM Calls: ${globalLlmMetrics.calls}`);
+  console.log(`Total LLM Prompt Tokens: ${globalLlmMetrics.promptTokens}`);
+  console.log(`Total LLM Completion Tokens: ${globalLlmMetrics.completionTokens}`);
+  console.log(`Total LLM Latency (ms): ${globalLlmMetrics.totalLatencyMs}`);
 }
 
 main().catch(console.error);
@@ -122,7 +141,18 @@ Confidence: 1
 ### `MCR` Class
 
 *   `new MCR(config)`: Creates a new MCR instance.
+    *   `config.llm.apiKey` (string): API key for supported providers (e.g., OpenAI).
+    *   `config.llm.provider` (string, optional): 'openai'. If not 'openai', requires `llm.client`.
+    *   `config.llm.client` (object, optional): A pre-initialized LLM client instance (e.g., `new OpenAI()`). Overrides `apiKey` and `provider`.
+    *   `config.llm.model` (string, optional): LLM model name (default: 'gpt-3.5-turbo').
 *   `createSession(options)`: Creates and returns a new `Session` object.
+*   `getLlmMetrics()`: Returns aggregated LLM usage metrics across all sessions created by this MCR instance.
+    *   **Returns**: An object containing:
+        *   `promptTokens`: Total tokens sent in prompts.
+        *   `completionTokens`: Total tokens received in completions.
+        *   `totalTokens`: Sum of prompt and completion tokens.
+        *   `calls`: Total number of LLM API calls.
+        *   `totalLatencyMs`: Total time spent waiting for LLM responses.
 
 ---
 

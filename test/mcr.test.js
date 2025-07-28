@@ -91,10 +91,11 @@ jest.mock('../src/translation/agenticReasoning', () => createMockTranslator([
 
 
 describe('MCR', () => {
-  test('instantiates with config', () => {
+  test('instantiates with config and OpenAI API key', () => {
     const config = { llm: { provider: 'openai', apiKey: 'test-key' } };
     const mcr = new MCR(config);
     expect(mcr.config).toEqual(config);
+    expect(mcr.llmClient).toBeDefined(); // Should have an OpenAI client
     expect(mcr.totalLlmUsage).toEqual({
       promptTokens: 0,
       completionTokens: 0,
@@ -102,6 +103,23 @@ describe('MCR', () => {
       calls: 0,
       totalLatencyMs: 0
     });
+  });
+
+  test('instantiates with custom LLM client', () => {
+    const mockLlmClient = { chat: { completions: { create: jest.fn() } } };
+    const config = { llm: { client: mockLlmClient } };
+    const mcr = new MCR(config);
+    expect(mcr.llmClient).toBe(mockLlmClient);
+  });
+
+  test('instantiates without LLM client if no config provided', () => {
+    const mcr = new MCR({});
+    expect(mcr.llmClient).toBeNull();
+  });
+
+  test('throws error for unsupported LLM provider', () => {
+    const config = { llm: { provider: 'google', apiKey: 'test-key' } };
+    expect(() => new MCR(config)).toThrow('Unsupported LLM provider: google. Please provide an \'llm.client\' instance for custom providers.');
   });
 
   test('creates session instances', () => {
@@ -126,6 +144,23 @@ describe('MCR', () => {
     const mcr = new MCR(config);
     expect(mcr.strategyRegistry.my_custom_strat).toBe(customStrategy);
     expect(mcr.strategyRegistry.direct).toBeDefined(); // Default strategies should still be there
+  });
+
+  // NEW TEST: MCR.getLlmMetrics
+  test('getLlmMetrics returns global usage data', async () => {
+    const mcrWithLLM = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });
+    const session1 = mcrWithLLM.createSession();
+    const session2 = mcrWithLLM.createSession();
+
+    // Call assert on session1 (1 LLM call from mock: 15 tokens)
+    await session1.assert('Tweety is a bird');
+    // Call assert on session2 (1 LLM call from mock: 15 tokens)
+    await session2.assert('All birds have wings');
+
+    const globalMetrics = mcrWithLLM.getLlmMetrics();
+    expect(globalMetrics.calls).toBe(2);
+    expect(globalMetrics.totalTokens).toBe(30); // 15 tokens from each assert
+    expect(globalMetrics.totalLatencyMs).toBeGreaterThan(0);
   });
 });
 

@@ -25,24 +25,16 @@ class MCR {
       ...(config.strategyRegistry || {}) // Merge custom strategies if provided
     };
     
+    // MODIFIED: Flexible LLM client instantiation
     if (llmConfig.client) {
       this.llmClient = llmConfig.client;
-    } else if (llmConfig.provider) {
-      switch (llmConfig.provider.toLowerCase()) {
-        case 'openai':
-          if (!llmConfig.apiKey) throw new Error('OpenAI API key required');
-          this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
-          break;
-        case 'google':
-          // Placeholder for Google provider. Implement actual client instantiation here.
-          throw new Error('Google LLM provider not yet implemented.');
-        case 'anthropic':
-          // Placeholder for Anthropic provider. Implement actual client instantiation here.
-          throw new Error('Anthropic LLM provider not yet implemented.');
-        default:
-          throw new Error(`Unsupported provider: ${llmConfig.provider}`);
-      }
+    } else if (llmConfig.apiKey && llmConfig.provider?.toLowerCase() === 'openai') {
+      this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
+    } else if (llmConfig.provider && llmConfig.provider.toLowerCase() !== 'openai') {
+      throw new Error(`Unsupported LLM provider: ${llmConfig.provider}. Please provide an 'llm.client' instance for custom providers.`);
     }
+    // If no client or API key for OpenAI is provided, this.llmClient remains null,
+    // allowing MCR to be used for symbolic-only operations.
   }
 
   createSession(options = {}) {
@@ -61,6 +53,11 @@ class MCR {
 
   loadState(state) {
     throw new Error('MCR instance does not manage session state. Use session.loadState() instead.');
+  }
+
+  // NEW METHOD: Get total LLM usage metrics across all sessions
+  getLlmMetrics() {
+    return { ...this.totalLlmUsage };
   }
 }
 

@@ -17,7 +17,7 @@ const { createOntologyHint } = require('./translationUtils');
  * @throws {Error} If the LLM client is not configured or if the LLM returns an invalid action type.
  */
 async function agenticReasoning(taskDescription, llmClient, model, sessionProgram, ontologyTerms, previousSteps, accumulatedBindings, maxAttempts = 2, retryDelay = 500, returnFullResponse = false) {
-  if (!llmClient) throw new Error('LLM client not configured for agentic reasoning.');
+  // REMOVED: if (!llmClient) throw new Error('LLM client not configured for agentic reasoning.');
 
   const ontologyHint = createOntologyHint(ontologyTerms);
   const programHint = sessionProgram.length > 0 ? `\n\nCurrent Knowledge Base:\n${sessionProgram.join('\n')}` : '';

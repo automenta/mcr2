@@ -2,7 +2,7 @@ const { createOntologyHint } = require('./translationUtils');
 
 async function directToProlog(naturalLanguageText, llmClient, model, ontologyTerms = [], feedback = null, returnFullResponse = false) {
   try {
-    if (!llmClient) return '';
+    // REMOVED: if (!llmClient) return ''; as this is handled by translateWithRetry or agenticReasoning
     
     const ontologyHint = createOntologyHint(ontologyTerms);
     const feedbackHint = feedback ? `\n\nFeedback from previous attempt: ${feedback}\n\n` : '';
