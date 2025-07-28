@@ -350,7 +350,7 @@ Represents an isolated reasoning context and its knowledge graph.
         *   `explanation`: Array of reasoning steps.
         *   `confidence`: Numerical confidence score (0.0-1.0).
 *   `async nquery(naturalLanguageQuery, options)`: Translates natural language question to Prolog and executes query.
-    *   **Returns**: Same object as `query()`.
+    *   **Returns**: Same object as `query()`, with an additional `prologQuery` field containing the translated query string.
 *   `async reason(taskDescription, options)`: Uses an agentic loop for multi-step reasoning to achieve a higher-level goal.
     *   **Options**:
         *   `maxSteps` (number): Maximum number of reasoning steps the agent can take (default: 5).
@@ -360,7 +360,9 @@ Represents an isolated reasoning context and its knowledge graph.
         *   `steps`: Array of natural language descriptions of reasoning steps.
         *   `confidence`: Numerical confidence score.
 *   `getKnowledgeGraph(format = 'prolog')`: Returns the entire knowledge graph.
-    *   `format`: 'prolog' (default) for a string, or 'json' for a structured object.
+    *   `format`: `'prolog'` (default) returns the knowledge graph as a newline-separated string. `'json'` returns a structured object containing facts, rules, and ontology terms.
+*   `getOntology()`: Returns a structured object representing the current session's ontology.
+    *   **Returns**: An object containing `types`, `relationships`, `constraints`, and `synonyms`.
 *   `saveState()`: Returns a JSON string representing the current session's state (program, ontology, sessionId).
 *   `loadState(state)`: Loads a session's state from a JSON string.
 *   `clear()`: Clears the session's program and resets its Prolog session.
@@ -429,6 +431,3 @@ MCR is architected to evolve. The foundational features are the launchpad for a 
 *   **Automated Knowledge Acquisition**: Future versions will be able to ingest and understand unstructured documents, websites, or API documentation, automatically building and updating their own knowledge graphs.
 *   **Multi-Modal Reasoning**: The architecture is designed to support future strategies that can translate inputs from other modalities—such as image recognition or data streams—into the symbolic core, enabling reasoning across different types of information.
 *   **Goal-Oriented Agency**: The `reason()` method will evolve into a true agentic loop, capable of breaking down complex goals into smaller, solvable steps of assertion and querying.
-``` ```
-
-test/mcr.test.js

@@ -492,22 +492,27 @@ class Session {
 
   async nquery(naturalLanguageQuery, options = {}) {
     this.logger.debug(`[${new Date().toISOString()}] nquery called for: "${naturalLanguageQuery}"`);
+    let prologQuery; // NEW: Define prologQuery in the outer scope
     try {
-      const prologQuery = await this.translateWithRetry(naturalLanguageQuery);
+      prologQuery = await this.translateWithRetry(naturalLanguageQuery);
       // Ensure the translated result is a query (does not end with a dot)
       if (typeof prologQuery !== 'string' || prologQuery.trim().endsWith('.')) {
         return { 
           success: false, 
+          prologQuery, // NEW: Include the invalid query
           bindings: null, 
           explanation: [`Translation resulted in a fact/rule or invalid clause for query. Must be a query (not ending with a dot).`], 
           confidence: 0.0 
         };
       }
-      return await this.query(prologQuery, options);
+      // MODIFIED: Attach prologQuery to the final result
+      return await this.query(prologQuery, options)
+        .then(result => ({ ...result, prologQuery }));
     } catch (error) {
       this.logger.error('Natural query error:', error);
       return { 
         success: false, 
+        prologQuery, // NEW: Include the query if it was translated before the error
         bindings: null, 
         explanation: [`Translation failed: ${error.message}`], 
         confidence: 0.0 
@@ -623,14 +628,20 @@ class Session {
       };
     }
     
-    return {
-      prolog: this.program.join('\n'),
-      entities: Array.from(this.ontology.types),
-      relationships: Array.from(this.ontology.relationships),
-      constraints: Array.from(this.ontology.constraints)
-    };
+    // MODIFIED: Return the prolog string directly for 'prolog' format
+    return this.program.join('\n');
   }
   
+  // NEW METHOD: Get the session's ontology
+  getOntology() {
+    return {
+      types: Array.from(this.ontology.types),
+      relationships: Array.from(this.ontology.relationships),
+      constraints: Array.from(this.ontology.constraints),
+      synonyms: { ...this.ontology.synonyms }
+    };
+  }
+
   // MODIFIED: addFact to use assertProlog directly
   addFact(entity, type) {
     const prologFact = `${this.ontology.resolveSynonym(type)}(${this.ontology.resolveSynonym(entity)}).`;

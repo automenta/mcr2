@@ -36,7 +36,8 @@ async function main() {
   await session.assert('All birds have wings.');
   await session.assert('Tweety is a canary.');
   console.log('Knowledge asserted via natural language.');
-  console.log(`Current Knowledge Graph (Prolog):\n${session.getKnowledgeGraph().prolog}`);
+  // MODIFIED: Use new getKnowledgeGraph call
+  console.log(`Current Knowledge Graph (Prolog):\n${session.getKnowledgeGraph('prolog')}`);
 
   // --- Prolog Query ---
   console.log('\n--- Prolog Query (query) ---');
@@ -54,6 +55,8 @@ async function main() {
   const naturalResult = await session.nquery('Does tweety have wings?', { allowSubSymbolicFallback: true });
   console.log(`Natural language query 'Does tweety have wings?':`);
   console.log(`  Success: ${naturalResult.success}`);
+  // NEW: Log the translated query
+  console.log(`  Translated Prolog: ${naturalResult.prologQuery}`);
   console.log(`  Bindings: ${naturalResult.bindings ? naturalResult.bindings.join(', ') : 'None'}`);
   console.log(`  Explanation: ${naturalResult.explanation.join('\n    ')}`);
   console.log(`  Confidence: ${naturalResult.confidence}`);
@@ -90,7 +93,8 @@ async function main() {
   const addRuleResult = session.addRule('eats_pizza(X) :- person(X), likes(X, pizza).');
   console.log(`Add Rule 'eats_pizza(X) :- ...': Success: ${addRuleResult.success}`);
 
-  let kgCurrent = session.getKnowledgeGraph().prolog;
+  // MODIFIED: Use new getKnowledgeGraph call
+  let kgCurrent = session.getKnowledgeGraph('prolog');
   console.log(`Current KG (excerpt):\n${kgCurrent.split('\n').filter(l => l.includes('alice') || l.includes('pizza') || l.includes('eats_pizza')).join('\n')}`);
 
   let queryPizza = await session.query('eats_pizza(alice).');
@@ -111,27 +115,36 @@ async function main() {
   console.log('\n--- Ontology Management ---');
   session.addConstraint('unique_name');
   console.log(`Added constraint 'unique_name'. Current constraints: ${Array.from(session.ontology.constraints).join(', ')}`);
+  
+  // NEW: Demonstrate getOntology()
+  const currentOntology = session.getOntology();
+  console.log(`Current ontology retrieved via getOntology():`);
+  console.log(JSON.stringify(currentOntology, null, 2));
 
   // --- Session State Management ---
   console.log('\n--- Session State Management ---');
   session.clear(); // Clears the current knowledge base and Prolog session
-  console.log(`Session cleared. KG empty: ${session.getKnowledgeGraph().prolog === ''}`);
+  // MODIFIED: Use new getKnowledgeGraph call
+  console.log(`Session cleared. KG empty: ${session.getKnowledgeGraph('prolog') === ''}`);
 
   const dogAssertResult = await session.assert('The dog is happy.'); // Add a fact after clearing
-  console.log(`KG after assert: ${session.getKnowledgeGraph().prolog}`);
+  // MODIFIED: Use new getKnowledgeGraph call
+  console.log(`KG after assert: ${session.getKnowledgeGraph('prolog')}`);
   
   const savedState = session.saveState(); // Save the current session state
   console.log(`Session state saved. Length: ${savedState.length} characters.`);
 
   const loadedSession = mcr.createSession(); // Create a new, empty session
   loadedSession.loadState(savedState); // Load the saved state into the new session
-  console.log(`State loaded into new session. KG: ${loadedSession.getKnowledgeGraph().prolog}`);
+  // MODIFIED: Use new getKnowledgeGraph call
+  console.log(`State loaded into new session. KG: ${loadedSession.getKnowledgeGraph('prolog')}`);
 
   // --- Ontology Reload and Program Revalidation ---
   console.log('\n--- Ontology Reload and Revalidation ---');
   session.addType('animal'); // Add 'animal' type to allow asserting 'animal(cat).'
   session.assertProlog('animal(cat).');
-  console.log(`KG before ontology reload: ${session.getKnowledgeGraph().prolog}`);
+  // MODIFIED: Use new getKnowledgeGraph call
+  console.log(`KG before ontology reload: ${session.getKnowledgeGraph('prolog')}`);
   
   // Reload ontology with new definitions, existing facts/rules will be revalidated
   session.reloadOntology({
@@ -140,7 +153,8 @@ async function main() {
     constraints: [],
     synonyms: {}
   });
-  console.log(`KG after ontology reload (animal(cat) should be gone due to revalidation): ${session.getKnowledgeGraph().prolog === '' ? 'empty' : session.getKnowledgeGraph().prolog}`); // Should be empty
+  // MODIFIED: Use new getKnowledgeGraph call
+  console.log(`KG after ontology reload (animal(cat) should be gone due to revalidation): ${session.getKnowledgeGraph('prolog') === '' ? 'empty' : session.getKnowledgeGraph('prolog')}`); // Should be empty
   console.log(`New ontology types: ${Array.from(session.ontology.types).join(', ')}`);
 
   // --- Agentic Reasoning ---
@@ -158,9 +172,10 @@ async function main() {
   // --- Knowledge Graph Export Formats ---
   console.log('\n--- Knowledge Graph Export Formats ---');
   // Get the knowledge graph in Prolog format (default)
+  // MODIFIED: Use new getKnowledgeGraph call
   const kgProlog = session.getKnowledgeGraph('prolog');
   console.log('Knowledge Graph (Prolog format):');
-  console.log(kgProlog.prolog);
+  console.log(kgProlog);
 
   // Get the knowledge graph in JSON format
   const kgJson = session.getKnowledgeGraph('json');
