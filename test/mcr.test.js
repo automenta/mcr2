@@ -470,7 +470,6 @@ describe('Session', () => {
     });
   });
 
-  describe('Translation Fallback', () => {
   describe('Translation Self-Correction and Fallback', () => {
     test('directToProlog attempts self-correction if initial output is invalid Prolog', async () => {
       const mcrForSelfCorrection = new MCR({ llm: { provider: 'openai', apiKey: 'test-key' } });

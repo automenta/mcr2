@@ -220,32 +220,63 @@ class Session {
       ...Object.keys(this.ontology.synonyms)
     ];
 
+    // If a custom translator function is provided, handle its retries internally
     if (typeof this.options.translator === 'function') {
+      let feedback = null;
       for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
         try {
-          return await this.options.translator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms);
+          const startTime = Date.now(); // Start timer
+          const result = await this.options.translator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms, feedback);
+          // NEW: Custom translator results don't have usage, so we mock a minimal usage for tracking calls and latency.
+          this._recordLlmUsage(startTime, { usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
+          if (!this._isValidPrologSyntax(result)) {
+            feedback = `The previous output was not valid Prolog syntax: "${result}". Please ensure it is a valid Prolog clause or query.`;
+            lastError = new Error('Translator produced invalid Prolog syntax.');
+            this.logger.warn(`Custom translator produced invalid Prolog. Retrying with feedback.`);
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay)); // Add delay for internal retries
+            continue; // Retry this strategy with feedback
+          }
+          return result;
         } catch (error) {
           lastError = error;
+          feedback = `Previous attempt failed with error: ${error.message}. Please correct the issue and provide valid Prolog output.`;
+          this.logger.warn(`Custom translator failed on attempt ${attempt + 1}. Retrying with feedback.`);
           if (attempt < this.maxAttempts - 1) {
             await new Promise(resolve => setTimeout(resolve, this.retryDelay));
           }
         }
       }
-      throw lastError;
+      throw lastError; // All attempts for custom translator failed
     }
 
+    // Default strategies (direct, json) with self-correction and fallback
     const strategyNames = (this.options.translator === 'json') ? ['json'] : ['direct', 'json'];
 
     for (const strategyName of strategyNames) {
       const currentTranslator = this.mcr.strategyRegistry[strategyName];
       if (!currentTranslator) continue;
 
+      let feedback = null;
       for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
         try {
-          return await currentTranslator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms);
+          const startTime = Date.now(); // Start timer
+          const response = await currentTranslator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms, feedback, true); // Pass true to get full response
+          this._recordLlmUsage(startTime, response); // Record usage from full response
+          const result = response.choices[0].message.content.trim(); // Extract content here
+
+          // Basic validation of the LLM's Prolog output for syntax correctness
+          if (!this._isValidPrologSyntax(result)) {
+            feedback = `The output was not valid Prolog syntax: "${result}". Please ensure it is a valid Prolog clause (ending with a dot) or a valid Prolog query (not ending with a dot and without ':-').`;
+            lastError = new Error('LLM produced invalid Prolog syntax.');
+            this.logger.warn(`Translation strategy '${strategyName}' produced invalid Prolog. Retrying with feedback.`);
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay)); // Add delay for internal retries
+            continue; // Retry this strategy with feedback
+          }
+          return result; // Successfully translated and validated
         } catch (error) {
           lastError = error;
-          this.logger.warn(`Translation strategy '${strategyName}' failed on attempt ${attempt + 1}: ${error.message}`);
+          feedback = `Previous attempt failed with error: ${error.message}. Please correct the issue and provide valid Prolog output.`;
+          this.logger.warn(`Translation strategy '${strategyName}' failed on attempt ${attempt + 1}: ${error.message}. Retrying with feedback.`);
           if (attempt < this.maxAttempts - 1) {
             await new Promise(resolve => setTimeout(resolve, this.retryDelay));
           }
@@ -435,6 +466,10 @@ class Session {
     this.logger.debug(`[${new Date().toISOString()}] nquery called for: "${naturalLanguageQuery}"`);
     try {
       const prologQuery = await this.translateWithRetry(naturalLanguageQuery);
+      // Ensure the translated result is a query (does not end with a dot)
+      if (typeof prologQuery !== 'string' || prologQuery.trim().endsWith('.')) {
+        throw new Error('Translation resulted in a fact/rule or invalid clause for query. Must be a query (not ending with a dot).');
+      }
       return await this.query(prologQuery, options);
     } catch (error) {
       this.logger.error('Natural query error:', error);
