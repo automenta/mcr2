@@ -9,6 +9,14 @@ class MCR {
     const llmConfig = config.llm || {};
     this.llmClient = null;
     this.llmModel = llmConfig.model || 'gpt-3.5-turbo';
+    // NEW: Initialize global LLM usage tracking
+    this.totalLlmUsage = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      calls: 0,
+      totalLatencyMs: 0
+    };
     // Allow initial strategies to be passed or use defaults
     this.strategyRegistry = {
       direct: require('./translation/directToProlog'),
@@ -69,6 +77,14 @@ class Session {
     this.program = [];
     this.logger = options.logger || console;
     this.ontology = new OntologyManager(this.options.ontology); // Initialize ontology first
+    // NEW: Initialize session-specific LLM usage tracking
+    this.llmUsage = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      calls: 0,
+      totalLatencyMs: 0
+    };
 
     this.prologSession = pl.create(); // Create initial Prolog session
     // If an initial program is provided (e.g., from loadState), consult it
@@ -99,6 +115,47 @@ class Session {
   _consultProgram() {
     this.prologSession = pl.create(); // Re-create session to clear previous state
     this.prologSession.consult(this.program.join('\n'));
+  }
+
+  // NEW HELPER: Validate if a string is a syntactically valid Prolog clause/query.
+  // This is a basic check and doesn't guarantee semantic correctness or arity.
+  _isValidPrologSyntax(prologString) {
+    if (typeof prologString !== 'string' || prologString.trim() === '') {
+        return false;
+    }
+    // Attempt to parse with Tau-Prolog to check syntax
+    try {
+        const session = pl.create();
+        // Use a dummy consult or query to check syntax.
+        // For facts/rules, they usually end with a dot. For queries, they don't always.
+        // The most robust way for arbitrary Prolog is to attempt to parse.
+        // This is a simplification. A full syntax checker would be more complex.
+        session.consult(prologString); // Will throw if invalid clause
+        return true;
+    } catch (e) {
+        return false;
+    }
+  }
+
+  // NEW HELPER: Records LLM usage metrics
+  _recordLlmUsage(startTime, response) {
+    const endTime = Date.now();
+    const latency = endTime - startTime;
+    const usage = response.usage;
+
+    if (usage) {
+      this.llmUsage.promptTokens += usage.prompt_tokens || 0;
+      this.llmUsage.completionTokens += usage.completion_tokens || 0;
+      this.llmUsage.totalTokens += usage.total_tokens || 0;
+      // Update MCR-level total usage
+      this.mcr.totalLlmUsage.promptTokens += usage.prompt_tokens || 0;
+      this.mcr.totalLlmUsage.completionTokens += usage.completion_tokens || 0;
+      this.mcr.totalLlmUsage.totalTokens += usage.total_tokens || 0;
+    }
+    this.llmUsage.calls++;
+    this.llmUsage.totalLatencyMs += latency;
+    this.mcr.totalLlmUsage.calls++;
+    this.mcr.totalLlmUsage.totalLatencyMs += latency;
   }
 
   reloadOntology(newOntology) {
@@ -232,8 +289,9 @@ class Session {
     this.logger.debug(`[${new Date().toISOString()}] assert called for: "${naturalLanguageText}"`);
     try {
       const prologClause = await this.translateWithRetry(naturalLanguageText);
-      if (typeof prologClause !== 'string' || !prologClause.trim()) {
-        throw new Error('Translation resulted in empty or invalid clause.');
+      // Ensure the translated result is a fact or rule (ends with a dot) for assertion
+      if (typeof prologClause !== 'string' || !prologClause.trim().endsWith('.')) {
+        throw new Error('Translation resulted in a query or invalid clause for assertion. Must be a fact or rule ending with a dot.');
       }
       
       // Use the new assertProlog method for validation and program update
@@ -285,13 +343,21 @@ class Session {
             resolve({
               success,
               bindings: success ? bindings : null,
-              explanation: proofSteps,
+              explanation: proofSteps.length > 0 ? proofSteps : (success ? ['Directly proven from knowledge graph.'] : ['No direct proof found in knowledge graph.']),
               confidence: success ? 1.0 : 0.0
             });
           } else {
             const formatted = pl.format_answer(answer);
             bindings.push(formatted);
-            proofSteps.push(`Derived: ${formatted}`);
+            
+            // Extract and format proof steps
+            const proof = answer.getProof();
+            if (proof) {
+              const formattedProof = this._formatPrologProof(proof);
+              proofSteps.push(`Derived: ${formatted} (Proof: ${formattedProof})`);
+            } else {
+              proofSteps.push(`Derived: ${formatted}`);
+            }
             this.prologSession.answer(onAnswer);
           }
         };
@@ -299,6 +365,7 @@ class Session {
         this.prologSession.answer(onAnswer);
       }).then(async (result) => {
         if (!result.success && allowSubSymbolicFallback && this.mcr.llmClient) {
+          const startTime = Date.now(); // Start timer for LLM fallback
           const llmAnswer = await this.mcr.llmClient.chat.completions.create({
             model: this.mcr.llmModel,
             messages: [{ 
@@ -309,6 +376,7 @@ class Session {
             }],
             temperature: 0.0,
           });
+          this._recordLlmUsage(startTime, llmAnswer); // Record usage for fallback
           const answer = llmAnswer.choices[0].message.content.trim();
           return { 
             success: true, 
@@ -328,6 +396,39 @@ class Session {
         confidence: 0.0 
       };
     }
+  }
+
+  // NEW HELPER: Formats Tau-Prolog proof steps for readability
+  _formatPrologProof(proofNode, indent = 0) {
+    if (!proofNode) return '';
+    const prefix = '  '.repeat(indent);
+    let result = '';
+
+    if (proofNode.rule) {
+      // For rules, show the rule name and its sub-proofs
+      result += `${prefix}Rule: ${proofNode.rule.id}`;
+      if (Object.keys(proofNode.unifies).length > 0) {
+        result += ` (Unifies: ${Object.entries(proofNode.unifies).map(([key, value]) => `${key}=${value}`).join(', ')})`;
+      }
+      result += '\n';
+    } else if (proofNode.predicate) {
+      // For goals/predicates, show the predicate and arguments
+      result += `${prefix}Goal: ${proofNode.predicate}(${proofNode.args.join(', ')})`;
+      if (Object.keys(proofNode.unifies).length > 0) {
+        result += ` (Unifies: ${Object.entries(proofNode.unifies).map(([key, value]) => `${key}=${value}`).join(', ')})`;
+      }
+      result += '\n';
+    } else if (proofNode.fact) {
+      // For facts, just show the fact
+      result += `${prefix}Fact: ${proofNode.fact}\n`;
+    }
+
+    if (proofNode.children && proofNode.children.length > 0) {
+      proofNode.children.forEach(child => {
+        result += this._formatPrologProof(child, indent + 1);
+      });
+    }
+    return result;
   }
 
   async nquery(naturalLanguageQuery, options = {}) {
@@ -370,6 +471,7 @@ class Session {
           ...Object.keys(this.ontology.synonyms)
         ];
 
+        const startTime = Date.now(); // Start timer for agentic strategy call
         const agentAction = await agenticStrategy(
           taskDescription, 
           this.mcr.llmClient, 
@@ -377,8 +479,13 @@ class Session {
           this.program, 
           ontologyTerms, 
           steps, 
-          accumulatedBindings
+          accumulatedBindings,
+          this.maxAttempts, // Pass max attempts for internal retries
+          this.retryDelay, // Pass retry delay for internal retries
+          true // Pass true to get full response for metrics
         );
+        this._recordLlmUsage(startTime, agentAction.response); // Record usage from full response
+        delete agentAction.response; // Remove the full response from the returned object
 
         steps.push(`Agent Action (${step + 1}): Type: ${agentAction.type}, Content: ${agentAction.content || agentAction.answer}`);
 
@@ -392,7 +499,8 @@ class Session {
               : queryResult.bindings.join(', ');
           }
           // Check if the query itself is a final conclusion (e.g., a true/false query)
-          if (queryResult.success && queryResult.bindings && queryResult.bindings.some(b => ['true', 'false', 'yes', 'no'].some(term => b.includes(term)))) {
+          // or if the agent explicitly signals conclusion
+          if (queryResult.success && queryResult.bindings && (queryResult.bindings.some(b => ['true', 'false', 'yes', 'no'].some(term => b.includes(term))) || agentAction.concludes)) {
             return {
               answer: queryResult.bindings.includes('true') || queryResult.bindings.includes('yes') ? 'Yes' : 'No',
               steps,
@@ -473,6 +581,28 @@ class Session {
     } catch (error) {
       return { success: false, error: error.message, symbolicRepresentation: prologRelationship };
     }
+  }
+
+  // NEW: Direct ontology management methods for Session
+  addType(type) {
+    this.ontology.addType(type);
+  }
+
+  addRelationship(relationship) {
+    this.ontology.addRelationship(relationship);
+  }
+
+  addConstraint(constraint) {
+    this.ontology.addConstraint(constraint);
+  }
+
+  addSynonym(originalTerm, synonym) {
+    this.ontology.addSynonym(originalTerm, synonym);
+  }
+
+  // NEW: Get LLM usage metrics for the session
+  getLlmMetrics() {
+    return { ...this.llmUsage };
   }
 }
 

@@ -16,7 +16,7 @@ const { createOntologyHint } = require('./translationUtils');
  *                            or `{ type: 'assert', content: 'prolog_fact.' }` or `{ type: 'conclude', answer: '...' }`.
  * @throws {Error} If the LLM client is not configured or if the LLM returns an invalid action type.
  */
-async function agenticReasoning(taskDescription, llmClient, model, sessionProgram, ontologyTerms, previousSteps, accumulatedBindings) {
+async function agenticReasoning(taskDescription, llmClient, model, sessionProgram, ontologyTerms, previousSteps, accumulatedBindings, maxAttempts = 2, retryDelay = 500, returnFullResponse = false) {
   if (!llmClient) throw new Error('LLM client not configured for agentic reasoning.');
 
   const ontologyHint = createOntologyHint(ontologyTerms);
@@ -24,37 +24,77 @@ async function agenticReasoning(taskDescription, llmClient, model, sessionProgra
   const previousStepsHint = previousSteps.length > 0 ? `\n\nPrevious Reasoning Steps:\n${previousSteps.join('\n')}` : '';
   const bindingsHint = accumulatedBindings ? `\n\nAccumulated Bindings: ${accumulatedBindings}` : '';
 
-  const prompt = `You are an expert Prolog reasoner and agent. Your goal is to break down a complex task into discrete Prolog queries or assertions, or to reach a conclusion.
-Your output must be a JSON object with a "type" field ("query", "assert", or "conclude") and a "content" field (Prolog clause for query/assert, or natural language answer for conclude).
+  let lastError;
+  let feedback = null;
 
-${programHint}${previousStepsHint}${bindingsHint}${ontologyHint}
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const feedbackHint = feedback ? `\n\nFeedback from previous attempt: ${feedback}\n\n` : '';
 
-Original Task: "${taskDescription}"
+    const prompt = `You are an expert Prolog reasoner and agent. Your goal is to break down a complex task into discrete, logical steps using Prolog assertions, queries, or by concluding the task.
+You have access to a Prolog knowledge base and can perform actions.
+${ontologyHint}${programHint}${previousStepsHint}${bindingsHint}${feedbackHint}
+
+Your output must be a JSON object with a "type" field ("query", "assert", or "conclude") and a "content" field (Prolog clause/query string) or an "answer" field (natural language conclusion).
+If type is "conclude", also include an optional "explanation" field (natural language string).
+Ensure all Prolog outputs are syntactically valid and conform to the ontology if applicable.
+Do not include any other text outside the JSON object.
 
 Examples:
-- To query: {"type": "query", "content": "can_fly(X)."}
-- To assert: {"type": "assert", "content": "bird(tweety)."}
-- To conclude: {"type": "conclude", "answer": "Yes, Tweety can fly.", "explanation": "Because all canaries are birds and Tweety is a canary."}
+To assert a fact: {"type":"assert","content":"bird(tweety)."}
+To assert a rule: {"type":"assert","content":"flies(X) :- bird(X)."}
+To query the knowledge base: {"type":"query","content":"has_wings(tweety)."}
+To conclude the task: {"type":"conclude","answer":"Yes, Tweety can fly.","explanation":"Derived from bird(tweety) and flies(X) :- bird(X)."}
 
-If you have sufficient information to answer the original task, or if a query results in 'true' or 'false' which directly answers the task, use "conclude". Provide a clear, concise natural language answer and a brief explanation in the "conclude" type.
+Given the task: "${taskDescription}"
+What is your next logical step?`;
 
-What is the next logical step to address the original task?
-Output:`;
+    try {
+      const response = await llmClient.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.0,
+        response_format: { type: "json_object" }
+      });
+      
+      const rawContent = response.choices[0].message.content.trim();
+      const agentAction = JSON.parse(rawContent);
 
-  const response = await llmClient.chat.completions.create({
-    model,
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.0,
-    response_format: { type: "json_object" }
-  });
+      // Basic validation of the agent's response structure
+      if (!['query', 'assert', 'conclude'].includes(agentAction.type)) {
+        throw new Error(`Invalid action type: ${agentAction.type}. Must be 'query', 'assert', or 'conclude'.`);
+      }
+      if (agentAction.type !== 'conclude' && (!agentAction.content || typeof agentAction.content !== 'string')) {
+        throw new Error(`Action type '${agentAction.type}' requires a 'content' field as a string.`);
+      }
+      if (agentAction.type === 'conclude' && (!agentAction.answer || typeof agentAction.answer !== 'string')) {
+        throw new Error(`Action type 'conclude' requires an 'answer' field as a string.`);
+      }
+      
+      // NEW: Attach full response if requested for metrics tracking
+      if (returnFullResponse) {
+        agentAction.response = response;
+      }
+      return agentAction;
 
-  const jsonOutput = JSON.parse(response.choices[0].message.content.trim());
-
-  if (!['query', 'assert', 'conclude'].includes(jsonOutput.type)) {
-    throw new Error(`Agentic reasoning strategy returned invalid action type: ${jsonOutput.type}. Content: ${jsonOutput.content}`);
+    } catch (error) {
+      lastError = error;
+      feedback = `The previous output was invalid. Error: ${error.message}. Please provide valid JSON with correct structure and content. Raw output was: ${error.rawOutput || 'N/A'}`;
+      if (error instanceof SyntaxError && error.message.includes('JSON')) {
+        feedback = `The previous output was not valid JSON. Please ensure your response is ONLY a JSON object and nothing else. Error: ${error.message}. Raw output was: ${error.rawOutput || 'N/A'}`;
+      }
+      
+      // Attach raw output if available for better debugging in feedback
+      if (error.response && error.response.choices && error.response.choices[0] && error.response.choices[0].message) {
+        lastError.rawOutput = error.response.choices[0].message.content.trim();
+        feedback = `The previous output was invalid. Error: ${error.message}. Raw output was: ${lastError.rawOutput}. Please correct it.`;
+      }
+      
+      if (attempt < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
   }
-
-  return jsonOutput;
+  throw lastError; // Re-throw if all attempts fail
 }
 
 module.exports = agenticReasoning;
