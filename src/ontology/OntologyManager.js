@@ -2,6 +2,7 @@ class OntologyManager {
   constructor(ontology = {}) {
     this.types = new Set(ontology.types || []);
     this.relationships = new Set(ontology.relationships || []);
+    this.constraints = new Set(ontology.constraints || []);
     this.rules = ontology.rules || [];
   }
 
@@ -16,12 +17,22 @@ class OntologyManager {
     bodyPredicates.forEach(p => this.validateFact(p));
   }
 
+  validateConstraint(constraint) {
+    if (!this.constraints.has(constraint)) {
+      throw new Error(`Constraint '${constraint}' is not defined in ontology`);
+    }
+  }
+
   addType(type) {
     this.types.add(type);
   }
 
   addRelationship(relationship) {
     this.relationships.add(relationship);
+  }
+
+  addConstraint(constraint) {
+    this.constraints.add(constraint);
   }
 }
 

@@ -161,17 +161,60 @@ class Session {
 
   async reason(taskDescription, options = {}) {
     try {
-      const prologQuery = await this.translateWithRetry(taskDescription);
-      const result = await this.query(prologQuery, options);
-      return {
-        answer: result.success ? 'Yes' : 'No',
-        steps: [
-          `Translated: ${prologQuery}`,
-          ...(result.success ? result.explanation.map(e => `Executed: ${e}`) : []),
-          ...(result.success ? [`Result: ${result.bindings}`] : [`Error: ${result.bindings || 'Query failed'}`])
-        ],
-        confidence: result.confidence
-      };
+      // Break down complex tasks into smaller steps
+      const steps = [];
+      let currentState = taskDescription;
+      let maxSteps = options.maxSteps || 5;
+      
+      while (true) {
+        const prologQuery = await this.translateWithRetry(currentState);
+        const result = await this.query(prologQuery, options);
+        
+        steps.push(`Translated: ${prologQuery}`);
+        if (result.success) {
+          steps.push(`Executed: ${prologQuery}`);
+          steps.push(`Result: ${result.bindings}`);
+          
+          // Validate against ontology constraints
+          try {
+            if (this.options.ontology) {
+              this.ontology.validateConstraint(prologQuery);
+            }
+          } catch (constraintError) {
+            steps.push(`Constraint violation: ${constraintError.message}`);
+            return {
+              answer: 'Constraint violation',
+              steps,
+              confidence: 0.0
+            };
+          }
+          
+          // Check if we've reached a final conclusion
+          if (this.isFinalResult(result.bindings) || steps.length >= maxSteps) {
+            return {
+              answer: result.success ? 'Yes' : 'No',
+              steps,
+              confidence: result.confidence
+            };
+          }
+          
+          // Update state for next iteration
+          currentState = this.generateNextStep(
+            taskDescription, 
+            steps, 
+            result.bindings
+          );
+        } else {
+          return {
+            answer: 'No',
+            steps: [
+              ...steps,
+              `Error: No solution found for ${prologQuery}`
+            ],
+            confidence: 0.0
+          };
+        }
+      }
     } catch (error) {
       return { 
         answer: 'Reasoning error', 
@@ -179,6 +222,19 @@ class Session {
         confidence: 0.0
       };
     }
+  }
+
+  isFinalResult(bindings) {
+    // Simple heuristic: if bindings contain a true/false conclusion
+    return bindings.includes('true') || 
+           bindings.includes('false') ||
+           bindings.includes('yes') ||
+           bindings.includes('no');
+  }
+
+  generateNextStep(originalTask, steps, bindings) {
+    // Generate next step prompt using previous results
+    return `Based on: ${steps.slice(-1)[0]}\nContinue reasoning about: ${originalTask}`;
   }
 
   getKnowledgeGraph() {
