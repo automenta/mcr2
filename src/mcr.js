@@ -117,19 +117,11 @@ class Session {
         return false;
     }
     const trimmedProlog = prologString.trim();
-    const session = pl.create();
+    const session = pl.create(1000); // Limit the number of resolutions
     try {
-        // Tau Prolog's `consult` and `query` methods can throw errors for invalid syntax.
-        // We can use this to our advantage to validate the syntax.
-        if (trimmedProlog.endsWith('.')) {
-            session.consult(trimmedProlog);
-        } else {
-            session.query(trimmedProlog);
-        }
-        // If no error is thrown, the syntax is considered valid.
+        session.consult(trimmedProlog);
         return true;
     } catch (e) {
-        // An error was thrown, so the syntax is invalid.
         return false;
     }
   }
