@@ -1,3 +1,5 @@
+const jsonToProlog = require('./jsonToProlog');
+
 async function directToProlog(naturalLanguageText, llmClient) {
   if (!llmClient) return '';
   
@@ -10,10 +12,20 @@ async function directToProlog(naturalLanguageText, llmClient) {
       temperature: 0.0,
     });
     
-    return response.choices[0].message.content.trim();
+    const prologOutput = response.choices[0].message.content.trim();
+    
+    // Add self-correction attempt
+    if (!prologOutput || !prologOutput.includes('(') || !prologOutput.includes(')')) {
+      return await jsonToProlog(naturalLanguageText, llmClient);
+    }
+    return prologOutput;
   } catch (error) {
     console.error('Translation error:', error);
-    throw error;
+    try {
+      return await jsonToProlog(naturalLanguageText, llmClient);
+    } catch (fallbackError) {
+      throw new Error(`All translation strategies failed: ${fallbackError.message}`);
+    }
   }
 }
 

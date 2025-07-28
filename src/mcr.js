@@ -33,11 +33,27 @@ class Session {
     this.prologSession = pl.create();
     this.program = [];
     this.translator = options.translator || directToProlog;
+    this.maxAttempts = options.translationAttempts || 2;
+  }
+
+  async translateWithRetry(text) {
+    let attempt = 0;
+    let lastError;
+    
+    while (attempt < this.maxAttempts) {
+      try {
+        return await this.translator(text, this.mcr.llmClient);
+      } catch (error) {
+        lastError = error;
+        attempt++;
+      }
+    }
+    throw lastError;
   }
 
   async assert(naturalLanguageText) {
     try {
-      const prologClause = await this.translator(naturalLanguageText, this.mcr.llmClient);
+      const prologClause = await this.translateWithRetry(naturalLanguageText);
       if (!prologClause) throw new Error('Translation resulted in empty clause');
       this.program.push(prologClause);
       await this.prologSession.consult(this.program.join('\n'));
@@ -113,7 +129,7 @@ class Session {
 
   async nquery(naturalLanguageQuery, options = {}) {
     try {
-      const prologQuery = await this.translator(naturalLanguageQuery, this.mcr.llmClient);
+      const prologQuery = await this.translateWithRetry(naturalLanguageQuery);
       return await this.query(prologQuery, options);
     } catch (error) {
       console.error('Natural query error:', error);
@@ -128,7 +144,7 @@ class Session {
 
   async reason(taskDescription, options = {}) {
     try {
-      const prologQuery = await this.translator(taskDescription, this.mcr.llmClient);
+      const prologQuery = await this.translateWithRetry(taskDescription);
       const result = await this.query(prologQuery, options);
       return {
         answer: result.success ? 'Yes' : 'No',
