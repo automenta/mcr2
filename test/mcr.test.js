@@ -1,11 +1,12 @@
 const { MCR, Session } = require('../src/mcr');
 
-jest.mock('../src/translation/directToProlog', () => jest.fn().mockImplementation(async (text) => {
+jest.mock('../src/translation/directToProlog', () => jest.fn().mockImplementation(async (text, llmClient, model, ontologyTerms) => {
   if (text.includes('All birds have wings')) return 'has_wings(X) :- bird(X).';
   if (text.includes('Tweety is a bird')) return 'bird(tweety).';
   if (text.includes('Tweety is a canary')) return 'canary(tweety).';
   if (text.includes('have wings?')) return 'has_wings(tweety).';
   if (text === 'Is tweety a bird?') return 'bird(tweety).';
+  if (text.includes('Tweety has color yellow')) return 'has_color(tweety, yellow).';
   return '';
 }));
 
@@ -156,7 +157,8 @@ describe('Session', () => {
       const mockJson = jest.spyOn(jsonToProlog, 'default').mockResolvedValue('has_wings(X) :- bird(X).');
       
       // Force an error in directToProlog
-      jest.spyOn(session, 'translateWithRetry').mockRejectedValueOnce(new Error('forced error'));
+      const directToPrologModule = require('../src/translation/directToProlog');
+      directToPrologModule.default.mockRejectedValueOnce(new Error('forced error'));
       
       const report = await session.assert('Complex rule with multiple conditions');
       expect(report.symbolicRepresentation).toMatch(/:-/);
