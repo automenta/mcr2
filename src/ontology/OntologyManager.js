@@ -4,9 +4,15 @@ class OntologyManager {
     this.relationships = new Set(ontology.relationships || []);
     this.constraints = new Set(ontology.constraints || []);
     this.rules = ontology.rules || [];
+    this.synonyms = ontology.synonyms || {};
+  }
+
+  resolveSynonym(term) {
+    return this.synonyms[term] || term;
   }
 
   validateFact(predicate, args = []) {
+    predicate = this.resolveSynonym(predicate);
     if (predicate === '' || predicate.startsWith('_') || !/^[a-z][a-zA-Z0-9_]*$/.test(predicate)) {
       throw new Error(`Invalid predicate name: ${predicate}. Must start with lowercase letter and contain only alphanumeric characters`);
     }
@@ -37,18 +43,21 @@ class OntologyManager {
   }
 
   validateRuleHead(head) {
+    head = this.resolveSynonym(head);
     if (!this.types.has(head) && !this.relationships.has(head)) {
       throw new Error(`Rule head '${head}' not defined in ontology`);
     }
   }
 
   validateRulePredicate(predicate) {
+    predicate = this.resolveSynonym(predicate);
     if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
       throw new Error(`Rule predicate '${predicate}' not defined in ontology`);
     }
   }
 
   validateConstraint(constraint) {
+    constraint = this.resolveSynonym(constraint);
     if (!this.constraints.has(constraint)) {
       throw new Error(`Constraint '${constraint}' is not defined in ontology`);
     }

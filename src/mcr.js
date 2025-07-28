@@ -26,6 +26,27 @@ class MCR {
   createSession(options = {}) {
     return new Session(this, options);
   }
+  saveState() {
+    return JSON.stringify({
+      program: this.program,
+      options: this.options,
+      sessionId: this.sessionId,
+      ontology: {
+        types: Array.from(this.ontology.types),
+        relationships: Array.from(this.ontology.relationships),
+        constraints: Array.from(this.ontology.constraints),
+        synonyms: this.ontology.synonyms
+      }
+    });
+  }
+
+  loadState(state) {
+    const data = JSON.parse(state);
+    this.program = data.program;
+    this.sessionId = data.sessionId;
+    this.ontology = new OntologyManager(data.ontology);
+    this.prologSession.consult(this.program.join('\n'));
+  }
 }
 
 class Session {
@@ -37,6 +58,7 @@ class Session {
     this.program = [];
     this.translator = this.resolveTranslator(options.translator);
     this.maxAttempts = options.translationAttempts || 2;
+    this.retryDelay = options.retryDelay || 500;
     this.ontology = new OntologyManager(options.ontology);
   }
   
@@ -49,7 +71,23 @@ class Session {
   reloadOntology(newOntology) {
     this.ontology = new OntologyManager(newOntology);
     // Revalidate existing program with new ontology
-    console.warn('Existing program not revalidated against new ontology');
+    try {
+      const tempProgram = [...this.program];
+      this.program = [];
+      for (const clause of tempProgram) {
+        // Simulate re-assertion
+        const head = clause.split(':-')[0].trim().replace(/\.$/, '');
+        const headPredicate = head.split('(')[0].trim();
+        const args = head.includes('(') ? 
+          head.match(/\(([^)]+)\)/)[1].split(',').map(a => a.trim()) : 
+          [];
+        this.ontology.validateFact(headPredicate, args);
+        this.program.push(clause);
+      }
+      this.prologSession.consult(this.program.join('\n'));
+    } catch (error) {
+      console.warn('Ontology reload caused validation errors', error);
+    }
   }
 
   clear() {
@@ -66,12 +104,24 @@ class Session {
     let attempt = 0;
     let lastError;
     
+    const ontologyTerms = [
+      ...this.ontology.types, 
+      ...this.ontology.relationships,
+      ...Object.keys(this.ontology.synonyms)
+    ];
+    
     while (attempt < this.maxAttempts) {
       try {
-        return await this.translator(text, this.mcr.llmClient, this.mcr.llmModel);
+        return await this.translator(
+          text, 
+          this.mcr.llmClient, 
+          this.mcr.llmModel,
+          ontologyTerms
+        );
       } catch (error) {
         lastError = error;
         attempt++;
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
       }
     }
     throw lastError;
@@ -277,7 +327,17 @@ class Session {
     return `Given: ${bindings.replace(/,\s*/g, ', ')}\nContinue: ${originalTask}`;
   }
 
-  getKnowledgeGraph() {
+  getKnowledgeGraph(format = 'prolog') {
+    if (format === 'json') {
+      return {
+        facts: this.program.filter(clause => !clause.includes(':-')),
+        rules: this.program.filter(clause => clause.includes(':-')),
+        entities: Array.from(this.ontology.types),
+        relationships: Array.from(this.ontology.relationships),
+        constraints: Array.from(this.ontology.constraints)
+      };
+    }
+    
     return {
       prolog: this.program.join('\n'),
       entities: Array.from(this.ontology.types),
