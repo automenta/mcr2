@@ -39,6 +39,7 @@ class Session {
   }
 
   async translateWithRetry(text) {
+    console.debug(`[${new Date().toISOString()}] translateWithRetry called for: "${text}"`);
     let attempt = 0;
     let lastError;
     
@@ -54,6 +55,7 @@ class Session {
   }
 
   async assert(naturalLanguageText) {
+    console.debug(`[${new Date().toISOString()}] assert called for: "${naturalLanguageText}"`);
     try {
       const prologClause = await this.translateWithRetry(naturalLanguageText);
       if (!prologClause) throw new Error('Translation resulted in empty clause');
@@ -89,10 +91,21 @@ class Session {
     }
   }
 
+  extractPredicates(query) {
+    return query
+      .split(/[,\s\(\)\.]+/)
+      .filter(token => /^[a-z][a-zA-Z0-9_]*$/.test(token));
+  }
+
   async query(prologQuery, options = {}) {
+    console.debug(`[${new Date().toISOString()}] query called for: "${prologQuery}"`);
     const { allowSubSymbolicFallback = false } = options;
     try {
       this.prologSession.consult(this.program.join('\n'));
+      if (this.options.ontology) {
+        const predicates = this.extractPredicates(prologQuery);
+        predicates.forEach(p => this.ontology.validateFact(p));
+      }
       const answers = [];
       const gatherAnswers = (ans) => {
         if (ans === false) {
@@ -145,6 +158,7 @@ class Session {
   }
 
   async nquery(naturalLanguageQuery, options = {}) {
+    console.debug(`[${new Date().toISOString()}] nquery called for: "${naturalLanguageQuery}"`);
     try {
       const prologQuery = await this.translateWithRetry(naturalLanguageQuery);
       return await this.query(prologQuery, options);
@@ -160,6 +174,7 @@ class Session {
   }
 
   async reason(taskDescription, options = {}) {
+    console.debug(`[${new Date().toISOString()}] reason called for: "${taskDescription}"`);
     try {
       // Break down complex tasks into smaller steps
       const steps = [];
@@ -233,8 +248,7 @@ class Session {
   }
 
   generateNextStep(originalTask, steps, bindings) {
-    // Generate next step prompt using previous results
-    return `Based on: ${steps.slice(-1)[0]}\nContinue reasoning about: ${originalTask}`;
+    return `Given: ${bindings.replace(/,\s*/g, ', ')}\nContinue: ${originalTask}`;
   }
 
   getKnowledgeGraph() {
