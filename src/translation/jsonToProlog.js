@@ -28,7 +28,6 @@ Output:`;
     const jsonOutput = JSON.parse(response.choices[0].message.content.trim());
     return convertJsonToProlog(jsonOutput);
   } catch (error) {
-    console.error('JSON translation error:', error);
     throw error;
   }
 }

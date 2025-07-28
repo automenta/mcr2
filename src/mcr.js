@@ -42,25 +42,11 @@ class MCR {
     this.strategyRegistry[name] = strategyFn;
   }
   saveState() {
-    return JSON.stringify({
-      program: this.program,
-      options: this.options,
-      sessionId: this.sessionId,
-      ontology: {
-        types: Array.from(this.ontology.types),
-        relationships: Array.from(this.ontology.relationships),
-        constraints: Array.from(this.ontology.constraints),
-        synonyms: this.ontology.synonyms
-      }
-    });
+    throw new Error('MCR instance does not manage session state. Use session.saveState() instead.');
   }
 
   loadState(state) {
-    const data = JSON.parse(state);
-    this.program = data.program;
-    this.sessionId = data.sessionId;
-    this.ontology = new OntologyManager(data.ontology);
-    this.prologSession.consult(this.program.join('\n'));
+    throw new Error('MCR instance does not manage session state. Use session.loadState() instead.');
   }
 }
 
@@ -77,14 +63,11 @@ class Session {
     this.program = [];
     this.logger = options.logger || console;
     
-    if (typeof options.translator === 'function') {
-      this.translator = options.translator;
-    } else {
-      const strategyName = options.translator || 'direct';
-      this.translator = this.mcr.strategyRegistry[strategyName];
-      if (!this.translator) {
-        throw new Error(`Unknown translation strategy: ${strategyName}`);
-      }
+    if (options.translator && typeof options.translator !== 'function' && typeof options.translator !== 'string') {
+      throw new Error('Translator option must be a function or a string (strategy name).');
+    }
+    if (typeof options.translator === 'string' && !this.mcr.strategyRegistry[options.translator]) {
+      throw new Error(`Unknown translation strategy: ${options.translator}`);
     }
     
     this.maxAttempts = this.options.maxTranslationAttempts;
@@ -110,7 +93,7 @@ class Session {
       }
       this.prologSession.consult(this.program.join('\n'));
     } catch (error) {
-      console.warn('Ontology reload caused validation errors', error);
+      this.logger.warn('Ontology reload caused validation errors', error);
     }
   }
 
@@ -120,7 +103,7 @@ class Session {
     if (this.options.ontology) {
       this.ontology = new OntologyManager(this.options.ontology);
     }
-    console.debug(`[${new Date().toISOString()}] [${this.sessionId}] Session cleared`);
+    this.logger.debug(`[${new Date().toISOString()}] [${this.sessionId}] Session cleared`);
   }
 
   saveState() {
@@ -146,8 +129,7 @@ class Session {
   }
   
   async translateWithRetry(text) {
-    console.debug(`[${new Date().toISOString()}] [${this.sessionId}] translateWithRetry: "${text}"`);
-    let attempt = 0;
+    this.logger.debug(`[${new Date().toISOString()}] [${this.sessionId}] translateWithRetry: "${text}"`);
     let lastError;
     
     const ontologyTerms = [
@@ -155,26 +137,45 @@ class Session {
       ...this.ontology.relationships,
       ...Object.keys(this.ontology.synonyms)
     ];
-    
-    while (attempt < this.maxAttempts) {
-      try {
-        return await this.translator(
-          text, 
-          this.mcr.llmClient, 
-          this.mcr.llmModel,
-          ontologyTerms
-        );
-      } catch (error) {
-        lastError = error;
-        attempt++;
-        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+
+    // If a custom translator function is provided directly, just use that and retry it
+    if (typeof this.options.translator === 'function') {
+      for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
+        try {
+          return await this.options.translator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms);
+        } catch (error) {
+          lastError = error;
+          if (attempt < this.maxAttempts - 1) { // Only delay if more attempts are coming
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+          }
+        }
+      }
+      throw lastError; // All attempts failed for custom translator
+    }
+
+    // Otherwise, use registered strategies with defined fallback order
+    const strategyNames = (this.options.translator === 'json') ? ['json'] : ['direct', 'json'];
+
+    for (const strategyName of strategyNames) {
+      const currentTranslator = this.mcr.strategyRegistry[strategyName];
+      if (!currentTranslator) continue; // Should not happen if constructor validates
+
+      for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
+        try {
+          return await currentTranslator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms);
+        } catch (error) {
+          lastError = error;
+          if (attempt < this.maxAttempts - 1) { // Only delay if more attempts are coming for this strategy
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+          }
+        }
       }
     }
     throw lastError;
   }
 
   async assert(naturalLanguageText) {
-    console.debug(`[${new Date().toISOString()}] assert called for: "${naturalLanguageText}"`);
+    this.logger.debug(`[${new Date().toISOString()}] assert called for: "${naturalLanguageText}"`);
     try {
       const translationResult = await this.translateWithRetry(naturalLanguageText);
       if (typeof translationResult !== 'string' || translationResult.error) {
@@ -215,7 +216,7 @@ class Session {
         originalText: naturalLanguageText 
       };
     } catch (error) {
-      console.error('Assertion error:', error);
+      this.logger.error('Assertion error:', error);
       return { 
         success: false, 
         symbolicRepresentation: null,
@@ -232,7 +233,7 @@ class Session {
   }
 
   async query(prologQuery, options = {}) {
-    console.debug(`[${new Date().toISOString()}] [${this.sessionId}] query: "${prologQuery}"`);
+    this.logger.debug(`[${new Date().toISOString()}] [${this.sessionId}] query: "${prologQuery}"`);
     const { allowSubSymbolicFallback = false } = options;
     try {
       this.prologSession.consult(this.program.join('\n'));
@@ -265,7 +266,12 @@ class Session {
         if (!result.success && allowSubSymbolicFallback && this.mcr.llmClient) {
           const llmAnswer = await this.mcr.llmClient.chat.completions.create({
             model: this.mcr.llmModel,
-            messages: [{ role: 'user', content: `Question: ${prologQuery}\nAnswer:` }],
+            messages: [{ 
+              role: 'user', 
+              content: `Given the Prolog query "${prologQuery}", what would be a natural language answer?` +
+                       `\n\nAvailable ontology terms: ${[...this.ontology.types, ...this.ontology.relationships, ...Object.keys(this.ontology.synonyms)].join(', ')}` +
+                       `\n\nAnswer:` 
+            }],
             temperature: 0.0,
           });
           const answer = llmAnswer.choices[0].message.content.trim();
@@ -279,7 +285,7 @@ class Session {
         return result;
       });
     } catch (error) {
-      console.error('Query error:', error);
+      this.logger.error('Query error:', error);
       return { 
         success: false, 
         bindings: null, 
@@ -290,12 +296,12 @@ class Session {
   }
 
   async nquery(naturalLanguageQuery, options = {}) {
-    console.debug(`[${new Date().toISOString()}] nquery called for: "${naturalLanguageQuery}"`);
+    this.logger.debug(`[${new Date().toISOString()}] nquery called for: "${naturalLanguageQuery}"`);
     try {
       const prologQuery = await this.translateWithRetry(naturalLanguageQuery);
       return await this.query(prologQuery, options);
     } catch (error) {
-      console.error('Natural query error:', error);
+      this.logger.error('Natural query error:', error);
       return { 
         success: false, 
         bindings: null, 
@@ -306,7 +312,7 @@ class Session {
   }
 
   async reason(taskDescription, options = {}) {
-    console.debug(`[${new Date().toISOString()}] reason called for: "${taskDescription}"`);
+    this.logger.debug(`[${new Date().toISOString()}] reason called for: "${taskDescription}"`);
     try {
       const steps = [];
       let currentState = taskDescription;
@@ -338,9 +344,8 @@ class Session {
           }
         }
         
-        // Prepare next step prompt
-        currentState = `Current knowledge: ${accumulatedBindings || 'No facts yet'}\n` + 
-                       `Original task: ${taskDescription}`;
+        // Prepare next step prompt using dedicated helper
+        currentState = this.generateNextStep(taskDescription, steps, accumulatedBindings);
       }
       
       // If max steps reached without final answer
@@ -368,7 +373,7 @@ class Session {
   }
 
   generateNextStep(originalTask, steps, bindings) {
-    return `Given: ${bindings.replace(/,\s*/g, ', ')}\nContinue: ${originalTask}`;
+    return `Current knowledge: ${bindings.replace(/,\s*/g, ', ') || 'No facts yet'}\nOriginal task: ${originalTask}`;
   }
 
   getKnowledgeGraph(format = 'prolog') {

@@ -1,4 +1,3 @@
-const jsonToProlog = require('./jsonToProlog');
 const { createOntologyHint } = require('./translationUtils');
 
 async function directToProlog(naturalLanguageText, llmClient, model, ontologyTerms = []) {
@@ -17,12 +16,7 @@ async function directToProlog(naturalLanguageText, llmClient, model, ontologyTer
     
     return response.choices[0].message.content.trim().replace(/\.$/, '') + '.';
   } catch (error) {
-    console.warn('Direct translation failed, trying JSON method');
-    try {
-      return await jsonToProlog(naturalLanguageText, llmClient, model, ontologyTerms);
-    } catch (fallbackError) {
-      throw new Error(`Translation failed: ${error.message} | ${fallbackError.message}`);
-    }
+    throw error; // Re-throw the error, translateWithRetry will handle retries/fallbacks
   }
 }
 
