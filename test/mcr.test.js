@@ -20,7 +20,6 @@ describe('MCR', () => {
     const mcr = new MCR({});
     const session = mcr.createSession();
     expect(session).toBeInstanceOf(Session);
-  });
 });
 
 describe('Session', () => {
