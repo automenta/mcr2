@@ -39,7 +39,7 @@ describe('Session', () => {
   test('assert translates and stores natural language', async () => {
     const report = await session.assert('Tweety is a bird');
     expect(report.symbolicRepresentation).toBe('bird(tweety).');
-    expect(session.getKnowledgeGraph()).toContain('bird(tweety).');
+    expect(session.getKnowledgeGraph().prolog).toContain('bird(tweety).');
   });
 
   test('query returns bindings and explanation for valid query', async () => {
@@ -60,13 +60,15 @@ describe('Session', () => {
   test('multiple asserts build knowledge graph', async () => {
     await session.assert('Tweety is a bird');
     await session.assert('Tweety is a canary');
-    const kg = session.getKnowledgeGraph();
+    const kg = session.getKnowledgeGraph().prolog;
     expect(kg).toContain('bird(tweety).');
     expect(kg).toContain('canary(tweety).');
   });
 
-  test('getKnowledgeGraph returns program as string', () => {
-    expect(typeof session.getKnowledgeGraph()).toBe('string');
+  test('getKnowledgeGraph returns object with prolog string', () => {
+    const kg = session.getKnowledgeGraph();
+    expect(kg).toHaveProperty('prolog');
+    expect(typeof kg.prolog).toBe('string');
   });
   
   test('nquery translates natural language and executes query', async () => {
