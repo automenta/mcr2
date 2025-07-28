@@ -144,13 +144,8 @@ describe('Session', () => {
     const mcr = new MCR({});
     const session = mcr.createSession({ logger: mockLogger });
     
-    const jsonToProlog = require('../src/translation/jsonToProlog');
-    const mockJson = jest.spyOn(jsonToProlog, 'default').mockRejectedValue(new Error('Test error'));
-    
     await session.assert('Invalid input');
     expect(mockLogger.error).toHaveBeenCalled();
-    
-    mockJson.mockRestore();
   });
 
   describe('Session State Management', () => {
