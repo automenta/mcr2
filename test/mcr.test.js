@@ -113,5 +113,4 @@ describe('Session', () => {
     expect(report.success).toBe(false);
     expect(report.error).toContain('not defined in ontology');
   });
-  });
 ```
