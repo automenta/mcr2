@@ -1,9 +1,9 @@
 const { createOntologyHint, convertJsonToProlog } = require('./translationUtils');
 
 async function jsonToProlog(naturalLanguageText, llmClient, model = 'gpt-3.5-turbo', ontologyTerms = [], feedback = null, returnFullResponse = false) {
-  if (!llmClient) return '';
-  
   try {
+    // REMOVED: if (!llmClient) return '';
+    
     const ontologyHint = createOntologyHint(ontologyTerms);
     const feedbackHint = feedback ? `\n\nFeedback from previous attempt: ${feedback}\n\n` : '';
 
