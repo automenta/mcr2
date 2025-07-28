@@ -16,7 +16,9 @@ class OntologyManager {
   }
 
   isDefined(predicate) {
-    return this.types.has(predicate) || this.relationships.has(predicate);
+    // Check if the predicate is directly defined or can be resolved via synonym
+    const resolvedPredicate = this.resolveSynonym(predicate);
+    return this.types.has(resolvedPredicate) || this.relationships.has(resolvedPredicate);
   }
 
   validateFact(predicate, args = []) {
@@ -30,6 +32,11 @@ class OntologyManager {
       if (args.length !== 1) {
         throw new Error(`${predicate} expects 1 argument, got ${args.length}`);
       }
+    } else if (this.relationships.has(predicate)) {
+      // Relationships typically expect 2 arguments (subject, object) but allow more for flexibility
+      if (args.length < 2) {
+        throw new Error(`${predicate} expects at least 2 arguments, got ${args.length}`);
+      }
     }
     
     if (!this.isDefined(predicate)) {
@@ -38,6 +45,37 @@ class OntologyManager {
     }
   }
   
+  validatePrologClause(prologClause) {
+    const parts = prologClause.split(':-');
+    const head = parts[0].trim();
+    const body = parts.length > 1 ? parts[1].replace(/\.\s*$/, '').trim() : '';
+
+    const headMatch = head.match(/^([a-z][a-zA-Z0-9_]*)\s*(\(([^)]*)\))?\s*$/);
+    if (!headMatch) {
+      throw new Error(`Invalid Prolog head format: ${head}`);
+    }
+    const headPredicate = headMatch[1];
+    const headArgs = headMatch[3] ? headMatch[3].split(',').map(a => a.trim()) : [];
+
+    this.validateFact(headPredicate, headArgs); // Use validateFact for the head of any clause
+
+    if (body) {
+      const bodyPredicates = body.split(/,\s*/).map(p => {
+        const predMatch = p.match(/^([a-z][a-zA-Z0-9_]*)\s*(\(([^)]*)\))?\s*$/);
+        if (!predMatch) {
+          throw new Error(`Invalid Prolog body predicate format: ${p}`);
+        }
+        const predName = predMatch[1];
+        // For body predicates, we only check if they are defined, not strict arity like facts
+        if (!this.isDefined(predName)) {
+            const suggestions = this.getSuggestions(predName);
+            throw new Error(`Rule body predicate '${predName}' not defined in ontology. ${suggestions}`);
+        }
+        return predName;
+      });
+    }
+  }
+
   addPredicate(type, name) {
     if (type === 'entity') this.types.add(name);
     else if (type === 'relationship') this.relationships.add(name);
@@ -45,7 +83,7 @@ class OntologyManager {
   }
   
   getSuggestions(predicate) {
-    const allTerms = [...this.types, ...this.relationships];
+    const allTerms = [...this.types, ...this.relationships, ...Object.keys(this.synonyms)]; // Include synonyms for suggestions
     const similar = allTerms.filter(term => 
       term.startsWith(predicate.substring(0, 3)) || 
       term.includes(predicate)
@@ -54,26 +92,27 @@ class OntologyManager {
   }
   
   addRule(rule) {
-    // Validate head predicate
+    // This method is for structured rule objects, not raw prolog clauses
+    // Rule validation logic should be consistent with validatePrologClause
     this.validateRuleHead(rule.head);
-    
-    // Validate all body predicates
     rule.body.forEach(pred => this.validateRulePredicate(pred));
-    
     this.rules.push(rule);
   }
 
   validateRuleHead(head) {
     head = this.resolveSynonym(head);
-    if (!this.types.has(head) && !this.relationships.has(head)) {
-      throw new Error(`Rule head '${head}' not defined in ontology`);
+    // For a rule head, we just need to know if the predicate is defined
+    if (!this.isDefined(head)) { // Use isDefined instead of checking types/relationships directly
+      const suggestions = this.getSuggestions(head);
+      throw new Error(`Rule head '${head}' not defined in ontology. ${suggestions}`);
     }
   }
 
   validateRulePredicate(predicate) {
     predicate = this.resolveSynonym(predicate);
-    if (!this.types.has(predicate) && !this.relationships.has(predicate)) {
-      throw new Error(`Rule predicate '${predicate}' not defined in ontology`);
+    if (!this.isDefined(predicate)) { // Use isDefined
+      const suggestions = this.getSuggestions(predicate);
+      throw new Error(`Rule predicate '${predicate}' not defined in ontology. ${suggestions}`);
     }
   }
 

@@ -1,6 +1,7 @@
 const pl = require('tau-prolog');
 const { OpenAI } = require('openai');
 const OntologyManager = require('./ontology/OntologyManager');
+const agenticReasoning = require('./translation/agenticReasoning'); // NEW IMPORT
 
 class MCR {
   constructor(config) {
@@ -8,9 +9,12 @@ class MCR {
     const llmConfig = config.llm || {};
     this.llmClient = null;
     this.llmModel = llmConfig.model || 'gpt-3.5-turbo';
+    // Allow initial strategies to be passed or use defaults
     this.strategyRegistry = {
       direct: require('./translation/directToProlog'),
-      json: require('./translation/jsonToProlog')
+      json: require('./translation/jsonToProlog'),
+      agentic: agenticReasoning, // NEW STRATEGY ADDED
+      ...(config.strategyRegistry || {}) // Merge custom strategies if provided
     };
     
     if (llmConfig.client) {
@@ -22,9 +26,11 @@ class MCR {
           this.llmClient = new OpenAI({ apiKey: llmConfig.apiKey });
           break;
         case 'google':
-          break;
+          // Placeholder for Google provider. Implement actual client instantiation here.
+          throw new Error('Google LLM provider not yet implemented.');
         case 'anthropic':
-          break;
+          // Placeholder for Anthropic provider. Implement actual client instantiation here.
+          throw new Error('Anthropic LLM provider not yet implemented.');
         default:
           throw new Error(`Unsupported provider: ${llmConfig.provider}`);
       }
@@ -56,12 +62,27 @@ class Session {
     this.options = {
       retryDelay: 500,
       maxTranslationAttempts: 2,
+      maxReasoningSteps: 5, // NEW OPTION
       ...options
     };
     this.sessionId = options.sessionId || Date.now().toString(36);
-    this.prologSession = pl.create();
     this.program = [];
     this.logger = options.logger || console;
+    this.ontology = new OntologyManager(this.options.ontology); // Initialize ontology first
+
+    this.prologSession = pl.create(); // Create initial Prolog session
+    // If an initial program is provided (e.g., from loadState), consult it
+    if (options.program && Array.isArray(options.program)) {
+      options.program.forEach(clause => {
+        try {
+          this.ontology.validatePrologClause(clause); // Validate initial program against ontology
+          this.program.push(clause);
+        } catch (e) {
+          this.logger.warn(`Invalid clause in initial program (skipped): ${clause}. Error: ${e.message}`);
+        }
+      });
+      this._consultProgram(); // Consult the valid part of the initial program
+    }
     
     if (options.translator && typeof options.translator !== 'function' && typeof options.translator !== 'string') {
       throw new Error('Translator option must be a function or a string (strategy name).');
@@ -72,35 +93,32 @@ class Session {
     
     this.maxAttempts = this.options.maxTranslationAttempts;
     this.retryDelay = this.options.retryDelay;
-    this.ontology = new OntologyManager(this.options.ontology);
   }
   
+  // NEW: Internal helper to consult the current program into the Prolog session
+  _consultProgram() {
+    this.prologSession = pl.create(); // Re-create session to clear previous state
+    this.prologSession.consult(this.program.join('\n'));
+  }
+
   reloadOntology(newOntology) {
     this.ontology = new OntologyManager(newOntology);
     // Revalidate existing program with new ontology
     try {
       const tempProgram = [...this.program];
-      this.program = [];
+      this.program = []; // Clear program to re-add validated clauses
       for (const clause of tempProgram) {
-        // Simulate re-assertion
-        const head = clause.split(':-')[0].trim().replace(/\.$/, '');
-        const headPredicate = head.split('(')[0].trim();
-        const args = head.includes('(') ? 
-          head.match(/\(([^)]+)\)/)[1].split(',').map(a => a.trim()) : 
-          [];
-        this.ontology.validateFact(headPredicate, args);
-        this.program.push(clause);
+        this.assertProlog(clause); // Use assertProlog for re-assertion and re-validation
       }
-      this.prologSession.consult(this.program.join('\n'));
     } catch (error) {
-      this.logger.warn('Ontology reload caused validation errors', error);
+      this.logger.warn('Ontology reload caused validation errors, some clauses might be removed.', error);
     }
   }
 
   clear() {
     this.program = [];
     this.prologSession = pl.create();
-    if (this.options.ontology) {
+    if (this.options.ontology) { // Re-initialize ontology if it was provided in options
       this.ontology = new OntologyManager(this.options.ontology);
     }
     this.logger.debug(`[${new Date().toISOString()}] [${this.sessionId}] Session cleared`);
@@ -121,11 +139,18 @@ class Session {
 
   loadState(state) {
     const data = JSON.parse(state);
-    this.program = data.program;
     this.sessionId = data.sessionId;
     this.ontology = new OntologyManager(data.ontology);
-    this.prologSession = pl.create();
-    this.prologSession.consult(this.program.join('\n'));
+    this.program = []; // Clear current program
+    this.prologSession = pl.create(); // Create new Prolog session
+    // Re-assert program to ensure validation and correct state
+    data.program.forEach(clause => {
+      try {
+        this.assertProlog(clause); // Use assertProlog to load state with validation
+      } catch (e) {
+        this.logger.error(`Failed to load clause "${clause}" from state due to ontology violation: ${e.message}`);
+      }
+    });
   }
   
   async translateWithRetry(text) {
@@ -138,34 +163,33 @@ class Session {
       ...Object.keys(this.ontology.synonyms)
     ];
 
-    // If a custom translator function is provided directly, just use that and retry it
     if (typeof this.options.translator === 'function') {
       for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
         try {
           return await this.options.translator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms);
         } catch (error) {
           lastError = error;
-          if (attempt < this.maxAttempts - 1) { // Only delay if more attempts are coming
+          if (attempt < this.maxAttempts - 1) {
             await new Promise(resolve => setTimeout(resolve, this.retryDelay));
           }
         }
       }
-      throw lastError; // All attempts failed for custom translator
+      throw lastError;
     }
 
-    // Otherwise, use registered strategies with defined fallback order
     const strategyNames = (this.options.translator === 'json') ? ['json'] : ['direct', 'json'];
 
     for (const strategyName of strategyNames) {
       const currentTranslator = this.mcr.strategyRegistry[strategyName];
-      if (!currentTranslator) continue; // Should not happen if constructor validates
+      if (!currentTranslator) continue;
 
       for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
         try {
           return await currentTranslator(text, this.mcr.llmClient, this.mcr.llmModel, ontologyTerms);
         } catch (error) {
           lastError = error;
-          if (attempt < this.maxAttempts - 1) { // Only delay if more attempts are coming for this strategy
+          this.logger.warn(`Translation strategy '${strategyName}' failed on attempt ${attempt + 1}: ${error.message}`);
+          if (attempt < this.maxAttempts - 1) {
             await new Promise(resolve => setTimeout(resolve, this.retryDelay));
           }
         }
@@ -174,45 +198,50 @@ class Session {
     throw lastError;
   }
 
+  // NEW METHOD: Directly assert a Prolog clause with ontology validation
+  assertProlog(prologClause) {
+    if (typeof prologClause !== 'string' || !prologClause.trim().endsWith('.')) {
+      throw new Error('Invalid Prolog clause. Must be a string ending with a dot.');
+    }
+    const normalizedClause = prologClause.trim();
+
+    try {
+      this.ontology.validatePrologClause(normalizedClause);
+      this.program.push(normalizedClause);
+      this._consultProgram(); // Re-consult the entire program
+      return { success: true, symbolicRepresentation: normalizedClause };
+    } catch (error) {
+      this.logger.error('Prolog assertion error:', error);
+      throw error; // Re-throw to indicate assertion failure
+    }
+  }
+
+  // NEW METHOD: Retract a Prolog clause
+  retractProlog(prologClause) {
+    const initialLength = this.program.length;
+    this.program = this.program.filter(clause => clause !== prologClause);
+    if (this.program.length < initialLength) {
+      this._consultProgram(); // Re-consult the program if changes were made
+      return { success: true, message: `Clause "${prologClause}" retracted.` };
+    } else {
+      return { success: false, message: `Clause "${prologClause}" not found.` };
+    }
+  }
+
   async assert(naturalLanguageText) {
     this.logger.debug(`[${new Date().toISOString()}] assert called for: "${naturalLanguageText}"`);
     try {
-      const translationResult = await this.translateWithRetry(naturalLanguageText);
-      if (typeof translationResult !== 'string' || translationResult.error) {
-        throw new Error(`Translation failed: ${translationResult.error || 'Unknown error'}`);
-      }
-      if (!translationResult) throw new Error('Translation resulted in empty clause');
-      
-      const prologClause = translationResult;
-      // Ontology validation
-      const parts = prologClause.split(':-');
-      const head = parts[0].trim();
-      const body = parts.length > 1 ? parts[1].replace(/\.\s*$/, '').trim() : '';
-      const headPredicate = head.split('(')[0].trim();
-      
-      if (body) {
-        const bodyPredicates = body.split(/,\s*/).map(p => {
-          const pred = p.split('(')[0].trim();
-          this.ontology.validateRulePredicate(pred);
-          return pred;
-        });
-        this.ontology.validateRuleHead(headPredicate);
-      } else {
-        // For a fact: remove trailing dot and extract arguments
-        const headWithoutDot = head.replace(/\.\s*$/, '');
-        let argList = [];
-        if (headWithoutDot.includes('(') && headWithoutDot.endsWith(')')) {
-          const inner = headWithoutDot.substring(headWithoutDot.indexOf('(')+1, headWithoutDot.lastIndexOf(')'));
-          argList = inner.split(',').map(a => a.trim());
-        }
-        this.ontology.validateFact(headPredicate, argList);
+      const prologClause = await this.translateWithRetry(naturalLanguageText);
+      if (typeof prologClause !== 'string' || !prologClause.trim()) {
+        throw new Error('Translation resulted in empty or invalid clause.');
       }
       
-      this.program.push(prologClause);
-      await this.prologSession.consult(this.program.join('\n'));
+      // Use the new assertProlog method for validation and program update
+      const assertResult = this.assertProlog(prologClause);
+
       return { 
         success: true, 
-        symbolicRepresentation: prologClause,
+        symbolicRepresentation: assertResult.symbolicRepresentation,
         originalText: naturalLanguageText 
       };
     } catch (error) {
@@ -236,10 +265,16 @@ class Session {
     this.logger.debug(`[${new Date().toISOString()}] [${this.sessionId}] query: "${prologQuery}"`);
     const { allowSubSymbolicFallback = false } = options;
     try {
-      this.prologSession.consult(this.program.join('\n'));
+      this._consultProgram(); // Ensure the latest program is consulted
       if (this.options.ontology) {
         const predicates = this.extractPredicates(prologQuery);
-        predicates.forEach(p => this.ontology.validateFact(p));
+        predicates.forEach(p => {
+          // Validate that predicates are defined in the ontology, but don't enforce arity rules for queries
+          if (!this.ontology.isDefined(p)) {
+            const suggestions = this.ontology.getSuggestions(p);
+            throw new Error(`Query predicate '${p}' not defined in ontology. ${suggestions}`);
+          }
+        });
       }
       return new Promise((resolve, reject) => {
         const bindings = [];
@@ -268,7 +303,7 @@ class Session {
             model: this.mcr.llmModel,
             messages: [{ 
               role: 'user', 
-              content: `Given the Prolog query "${prologQuery}", what would be a natural language answer?` +
+              content: `Given the Prolog query "${prologQuery}", and the current knowledge graph:\n${this.program.join('\n')}\n\nWhat would be a natural language answer?` +
                        `\n\nAvailable ontology terms: ${[...this.ontology.types, ...this.ontology.relationships, ...Object.keys(this.ontology.synonyms)].join(', ')}` +
                        `\n\nAnswer:` 
             }],
@@ -278,7 +313,7 @@ class Session {
           return { 
             success: true, 
             bindings: [answer], 
-            explanation: ['Sub-symbolic fallback'], 
+            explanation: ['Sub-symbolic fallback used. LLM provided the answer based on provided context and its general knowledge.'], 
             confidence: 0.7 
           };
         }
@@ -289,7 +324,7 @@ class Session {
       return { 
         success: false, 
         bindings: null, 
-        explanation: [], 
+        explanation: [`Error: ${error.message}`], 
         confidence: 0.0 
       };
     }
@@ -305,56 +340,91 @@ class Session {
       return { 
         success: false, 
         bindings: null, 
-        explanation: [], 
+        explanation: [`Translation failed: ${error.message}`], 
         confidence: 0.0 
       };
     }
   }
 
+  // REFACTORED METHOD: reason
   async reason(taskDescription, options = {}) {
     this.logger.debug(`[${new Date().toISOString()}] reason called for: "${taskDescription}"`);
     try {
       const steps = [];
-      let currentState = taskDescription;
-      let maxSteps = options.maxSteps || 5;
       let accumulatedBindings = '';
-      
-      for (let step = 0; step < maxSteps; step++) {
-        const prologQuery = await this.translateWithRetry(currentState);
-        if (typeof prologQuery !== 'string' || prologQuery.error) {
-          throw new Error(`Translation failed: ${prologQuery.error || 'Unknown error'}`);
-        }
-        const result = await this.query(prologQuery, {allowSubSymbolicFallback: options.allowSubSymbolicFallback});
-        
-        steps.push(`Step ${step+1}: Translated to "${prologQuery}"`);
-        steps.push(`Result: ${result.success ? 'Success' : 'No solution found'}`);
-        
-        if (result.success) {
-          steps.push(`Bindings: ${result.bindings}`);
-          accumulatedBindings = accumulatedBindings 
-            ? `${accumulatedBindings}, ${result.bindings}`
-            : result.bindings;
-          
-          if (this.isFinalResult(result.bindings)) {
-            return {
-              answer: result.bindings.includes('true') || result.bindings.includes('yes') ? 'Yes' : 'No',
-              steps,
-              confidence: result.confidence
-            };
-          }
-        }
-        
-        // Prepare next step prompt using dedicated helper
-        currentState = this.generateNextStep(taskDescription, steps, accumulatedBindings);
+      const maxSteps = options.maxSteps || this.options.maxReasoningSteps;
+      const allowSubSymbolicFallback = options.allowSubSymbolicFallback || false;
+      const agenticStrategy = this.mcr.strategyRegistry.agentic;
+
+      if (!agenticStrategy) {
+        throw new Error('Agentic reasoning strategy not registered. Please ensure "agenticReasoning.js" is correctly configured.');
       }
       
-      // If max steps reached without final answer
+      for (let step = 0; step < maxSteps; step++) {
+        this.logger.debug(`[${new Date().toISOString()}] [${this.sessionId}] Reasoning step ${step + 1}`);
+        
+        // Use the agentic strategy to determine the next action
+        const ontologyTerms = [
+          ...this.ontology.types, 
+          ...this.ontology.relationships,
+          ...Object.keys(this.ontology.synonyms)
+        ];
+
+        const agentAction = await agenticStrategy(
+          taskDescription, 
+          this.mcr.llmClient, 
+          this.mcr.llmModel, 
+          this.program, 
+          ontologyTerms, 
+          steps, 
+          accumulatedBindings
+        );
+
+        steps.push(`Agent Action (${step + 1}): Type: ${agentAction.type}, Content: ${agentAction.content || agentAction.answer}`);
+
+        if (agentAction.type === 'query') {
+          const queryResult = await this.query(agentAction.content, { allowSubSymbolicFallback });
+          steps.push(`Query Result: Success: ${queryResult.success}, Bindings: ${queryResult.bindings ? queryResult.bindings.join(', ') : 'None'}, Confidence: ${queryResult.confidence}`);
+          
+          if (queryResult.success && queryResult.bindings) {
+            accumulatedBindings = accumulatedBindings 
+              ? `${accumulatedBindings}, ${queryResult.bindings.join(', ')}`
+              : queryResult.bindings.join(', ');
+          }
+          // Check if the query itself is a final conclusion (e.g., a true/false query)
+          if (queryResult.success && queryResult.bindings && queryResult.bindings.some(b => ['true', 'false', 'yes', 'no'].some(term => b.includes(term)))) {
+            return {
+              answer: queryResult.bindings.includes('true') || queryResult.bindings.includes('yes') ? 'Yes' : 'No',
+              steps,
+              confidence: queryResult.confidence
+            };
+          }
+
+        } else if (agentAction.type === 'assert') {
+          try {
+            const assertResult = this.assertProlog(agentAction.content);
+            steps.push(`Assertion Result: Success: ${assertResult.success}, Clause: ${assertResult.symbolicRepresentation}`);
+          } catch (assertError) {
+            steps.push(`Assertion Failed: ${assertError.message}`);
+            // Decide how to handle failed assertion: continue, or throw. For now, log and continue.
+          }
+        } else if (agentAction.type === 'conclude') {
+          return {
+            answer: agentAction.answer,
+            steps: [...steps, `Conclusion: ${agentAction.answer}` + (agentAction.explanation ? ` (Explanation: ${agentAction.explanation})` : '')],
+            confidence: 1.0 // Agent concluded, assuming high confidence in its decision
+          };
+        }
+      }
+      
+      // If max steps reached without a 'conclude' action
       return {
         answer: 'Inconclusive',
-        steps: [...steps, `Reached maximum steps (${maxSteps}) without conclusion`],
+        steps: [...steps, `Reached maximum steps (${maxSteps}) without conclusion. Current bindings: ${accumulatedBindings || 'None'}`],
         confidence: 0.3
       };
     } catch (error) {
+      this.logger.error('Reasoning error:', error);
       return { 
         answer: 'Reasoning error', 
         steps: [`Error: ${error.message}`],
@@ -363,18 +433,8 @@ class Session {
     }
   }
 
-  isFinalResult(bindings) {
-    if (!bindings) return false;
-    
-    return bindings.some(b => 
-      ['true', 'false', 'yes', 'no', 'conclusion(']
-        .some(term => b.includes(term))
-    );
-  }
-
-  generateNextStep(originalTask, steps, bindings) {
-    return `Current knowledge: ${bindings.replace(/,\s*/g, ', ') || 'No facts yet'}\nOriginal task: ${originalTask}`;
-  }
+  // REMOVED: isFinalResult - Logic handled by agentic strategy's 'conclude' type
+  // REMOVED: generateNextStep - Logic handled by agentic strategy
 
   getKnowledgeGraph(format = 'prolog') {
     if (format === 'json') {
@@ -395,12 +455,24 @@ class Session {
     };
   }
   
+  // MODIFIED: addFact to use assertProlog directly
   addFact(entity, type) {
-    return this.assert(`${entity} is a ${type}`);
+    const prologFact = `${this.ontology.resolveSynonym(type)}(${this.ontology.resolveSynonym(entity)}).`;
+    try {
+      return this.assertProlog(prologFact);
+    } catch (error) {
+      return { success: false, error: error.message, symbolicRepresentation: prologFact };
+    }
   }
   
+  // MODIFIED: addRelationship to use assertProlog directly
   addRelationship(subject, relation, object) {
-    return this.assert(`${subject} ${relation} ${object}`);
+    const prologRelationship = `${this.ontology.resolveSynonym(relation)}(${this.ontology.resolveSynonym(subject)}, ${this.ontology.resolveSynonym(object)}).`;
+    try {
+      return this.assertProlog(prologRelationship);
+    } catch (error) {
+      return { success: false, error: error.message, symbolicRepresentation: prologRelationship };
+    }
   }
 }
 
