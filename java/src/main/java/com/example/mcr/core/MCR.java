@@ -1,128 +1,100 @@
 package com.example.mcr.core;
 
-import com.example.mcr.llm.LLMClientFactory;
-import com.example.mcr.ontology.OntologyManager;
-import com.example.mcr.session.Session;
-import com.example.mcr.translation.AgenticReasoning;
-import com.example.mcr.translation.DirectToProlog;
-import com.example.mcr.translation.JsonToProlog;
+import com.example.mcr.llm.LLMClient;
 import com.example.mcr.translation.TranslationStrategy;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import com.example.mcr.core.Session;
 import java.util.HashMap;
 import java.util.Map;
 
 public class MCR {
-    private final MCRConfig config;
-    private ChatLanguageModel llmClient;
+    private final Config config;
+    private LLMClient llmClient;
     private final String llmModel;
-    private final Map<String, TranslationStrategy> strategyRegistry = new HashMap<>();
-    private final LLMUsageMetrics totalLlmUsage = new LLMUsageMetrics();
+    private final Map<String, TranslationStrategy> strategyRegistry;
+    private final LLMUsageMetrics totalLlmUsage;
 
-    public MCR(MCRConfig config) {
+    public MCR(Config config) {
         this.config = config;
-        LLMConfig llmConfig = config.getLlmConfig();
-        
-        // Initialize LLM client
-        if (llmConfig.getClient() != null) {
-            this.llmClient = llmConfig.getClient();
-        } else if (llmConfig.getProvider() != null) {
-            this.llmClient = LLMClientFactory.getLlmClient(llmConfig);
+        this.llmModel = config.llm != null ? config.llm.model : "gpt-3.5-turbo";
+        this.strategyRegistry = new HashMap<>();
+        this.strategyRegistry.put("direct", new DirectToProlog());
+        this.strategyRegistry.put("json", new JsonToProlog());
+        this.strategyRegistry.put("agentic", new AgenticReasoning());
+        if (config.strategyRegistry != null) {
+            this.strategyRegistry.putAll(config.strategyRegistry);
         }
-        this.llmModel = llmConfig.getModel() != null ? llmConfig.getModel() : "gpt-3.5-turbo";
+        this.totalLlmUsage = new LLMUsageMetrics();
         
-        // Initialize strategies
-        strategyRegistry.put("direct", new DirectToProlog());
-        strategyRegistry.put("json", new JsonToProlog());
-        strategyRegistry.put("agentic", new AgenticReasoning());
-        
-        // Add custom strategies
-        if (config.getStrategyRegistry() != null) {
-            strategyRegistry.putAll(config.getStrategyRegistry());
+        if (config.llm != null && config.llm.client != null) {
+            this.llmClient = config.llm.client;
+        } else if (config.llm != null && config.llm.provider != null) {
+            // Assuming getLlmClient is implemented elsewhere
+            this.llmClient = getLlmClient(config.llm);
         }
     }
 
-    public Session createSession(SessionConfig options) {
+    public Session createSession(SessionOptions options) {
         return new Session(this, options);
     }
 
     public void registerStrategy(String name, TranslationStrategy strategy) {
         if (strategy == null) {
-            throw new IllegalArgumentException("Strategy must not be null");
+            throw new IllegalArgumentException("Strategy cannot be null");
         }
-        strategyRegistry.put(name, strategy);
-    }
-
-    public TranslationStrategy getStrategy(String name) {
-        return strategyRegistry.get(name);
+        this.strategyRegistry.put(name, strategy);
     }
 
     public LLMUsageMetrics getLlmMetrics() {
         return new LLMUsageMetrics(totalLlmUsage);
     }
 
-    // Configuration classes
-    public static class MCRConfig {
-        private LLMConfig llmConfig;
-        private Map<String, TranslationStrategy> strategyRegistry;
-
-        // Getters and setters
-        public LLMConfig getLlmConfig() { return llmConfig; }
-        public void setLlmConfig(LLMConfig llmConfig) { this.llmConfig = llmConfig; }
-        public Map<String, TranslationStrategy> getStrategyRegistry() { return strategyRegistry; }
-        public void setStrategyRegistry(Map<String, TranslationStrategy> strategyRegistry) { 
-            this.strategyRegistry = strategyRegistry; 
-        }
+    // Assuming getLlmClient is implemented elsewhere
+    private LLMClient getLlmClient(LlmConfig llmConfig) {
+        // Implementation details...
+        return new LLMClient(); // Placeholder
     }
 
-    public static class LLMConfig {
-        private String provider;
-        private String model;
-        private String apiKey;
-        private ChatLanguageModel client;
+    public static class Config {
+        public LlmConfig llm;
+        public Map<String, TranslationStrategy> strategyRegistry;
+        
+        public Config() {}
+    }
 
-        // Getters and setters
-        public String getProvider() { return provider; }
-        public void setProvider(String provider) { this.provider = provider; }
-        public String getModel() { return model; }
-        public void setModel(String model) { this.model = model; }
-        public String getApiKey() { return apiKey; }
-        public void setApiKey(String apiKey) { this.apiKey = apiKey; }
-        public ChatLanguageModel getClient() { return client; }
-        public void setClient(ChatLanguageModel client) { this.client = client; }
+    public static class LlmConfig {
+        public String provider;
+        public String apiKey;
+        public String model;
+        
+        public LlmConfig() {}
+    }
+
+    public static class SessionOptions {
+        public long retryDelay = 500;
+        public int maxTranslationAttempts = 2;
+        public int maxReasoningSteps = 5;
+        public Object ontology;
+        public java.util.logging.Logger logger;
+        public String translator;
+        
+        public SessionOptions() {}
     }
 
     public static class LLMUsageMetrics {
-        private long promptTokens;
-        private long completionTokens;
-        private long totalTokens;
-        private int calls;
-        private long totalLatencyMs;
-
-        // Constructor for copying
-        public LLMUsageMetrics(LLMUsageMetrics other) {
-            this.promptTokens = other.promptTokens;
-            this.completionTokens = other.completionTokens;
-            this.totalTokens = other.totalTokens;
-            this.calls = other.calls;
-            this.totalLatencyMs = other.totalLatencyMs;
-        }
-
-        public LLMUsageMetrics() {} // Default constructor
-
-        // Getters
-        public long getPromptTokens() { return promptTokens; }
-        public long getCompletionTokens() { return completionTokens; }
-        public long getTotalTokens() { return totalTokens; }
-        public int getCalls() { return calls; }
-        public long getTotalLatencyMs() { return totalLatencyMs; }
-
-        // Method to add usage
-        public void addUsage(LLMUsageMetrics usage) {
-            this.promptTokens += usage.getPromptTokens();
-            this.completionTokens += usage.getCompletionTokens();
-            this.totalTokens += usage.getTotalTokens();
-            this.calls += usage.getCalls();
-            this.totalLatencyMs += usage.getTotalLatencyMs();
+        public long promptTokens;
+        public long completionTokens;
+        public long totalTokens;
+        public int calls;
+        public long totalLatencyMs;
+        
+        public LLMUsageMetrics() {}
+        
+        public LLMUsageMetrics(LLMUsageMetrics source) {
+            this.promptTokens = source.promptTokens;
+            this.completionTokens = source.completionTokens;
+            this.totalTokens = source.totalTokens;
+            this.calls = source.calls;
+            this.totalLatencyMs = source.totalLatencyMs;
         }
     }
 }
