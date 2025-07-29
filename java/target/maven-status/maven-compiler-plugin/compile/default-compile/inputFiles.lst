@@ -1,7 +1,10 @@
-/app/java/src/main/java/com/mcr/MCR.java
+/app/java/src/main/java/com/mcr/core/MCR.java
+/app/java/src/main/java/com/mcr/core/Session.java
 /app/java/src/main/java/com/mcr/ontology/OntologyManager.java
 /app/java/src/main/java/com/mcr/llm/LlmClientFactory.java
 /app/java/src/main/java/com/mcr/translation/TranslationStrategy.java
+/app/java/src/main/java/com/mcr/demo/Main.java
+/app/java/src/main/java/com/mcr/prolog/PrologEngine.java
 /app/java/src/main/java/com/mcr/translation/AgenticReasoning.java
 /app/java/src/main/java/com/mcr/translation/JsonToProlog.java
 /app/java/src/main/java/com/mcr/translation/DirectToProlog.java

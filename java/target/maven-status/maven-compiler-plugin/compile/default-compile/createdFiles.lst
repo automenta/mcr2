@@ -1,8 +1,0 @@
-com/mcr/translation/AgenticReasoning.class
-com/mcr/translation/DirectToProlog.class
-com/mcr/llm/LlmClientFactory.class
-com/mcr/MCR$Session.class
-com/mcr/translation/JsonToProlog.class
-com/mcr/ontology/OntologyManager.class
-com/mcr/MCR.class
-com/mcr/translation/TranslationStrategy.class
