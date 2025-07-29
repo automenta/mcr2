@@ -2,7 +2,9 @@ package com.mcr.translation;
 
 import com.google.gson.Gson;
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.output.Response;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -16,14 +18,11 @@ public class AgenticReasoning implements TranslationStrategy {
         ChatLanguageModel client = (ChatLanguageModel) llmClient;
 
         String ontologyHint = !ontologyTerms.isEmpty() ? "\n\nAvailable ontology terms: " + String.join(", ", ontologyTerms) : "";
-        String programHint = ""; // In a real implementation, the program would be passed in.
-        String previousStepsHint = ""; // In a real implementation, previous steps would be passed in.
-        String bindingsHint = ""; // In a real implementation, bindings would be passed in.
         String feedbackHint = feedback != null ? "\n\nFeedback from previous attempt: " + feedback + "\n\n" : "";
 
         String prompt = "You are an expert Prolog reasoner and agent. Your goal is to break down a complex task into discrete, logical steps using Prolog assertions, queries, or by concluding the task.\n" +
                 "You have access to a Prolog knowledge base and can perform actions.\n" +
-                ontologyHint + programHint + previousStepsHint + bindingsHint + feedbackHint +
+                ontologyHint + feedbackHint +
                 "\nYour output must be a JSON object with a \"type\" field (\"query\", \"assert\", or \"conclude\") and a \"content\" field (Prolog clause/query string) or an \"answer\" field (natural language conclusion).\n" +
                 "If type is \"conclude\", also include an optional \"explanation\" field (natural language string).\n" +
                 "Ensure all Prolog outputs are syntactically valid and conform to the ontology if applicable.\n" +
@@ -36,7 +35,15 @@ public class AgenticReasoning implements TranslationStrategy {
                 "Given the task: \"" + naturalLanguageText + "\"\n" +
                 "What is your next logical step?";
 
+        long startTime = System.currentTimeMillis();
         String jsonOutput = client.generate(prompt).trim();
-        return new Gson().fromJson(jsonOutput, Map.class);
+        long endTime = System.currentTimeMillis();
+
+        Map<String, Object> result = new Gson().fromJson(jsonOutput, Map.class);
+        result.put("promptTokens", 0L);
+        result.put("completionTokens", 0L);
+        result.put("latencyMs", endTime - startTime);
+
+        return result;
     }
 }

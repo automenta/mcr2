@@ -2,6 +2,7 @@ package com.mcr.translation;
 
 import com.google.gson.Gson;
 import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.output.Response;
 
 import java.util.HashMap;
 import java.util.List;

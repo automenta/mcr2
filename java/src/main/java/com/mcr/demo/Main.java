@@ -15,7 +15,7 @@ public class Main {
 
         session.assertStatement("All canaries are birds.");
         session.assertStatement("All birds have wings.");
-        session.assertStatement("Tweety is a canary.");
+        session.addFact("Tweety", "canary");
 
         // Query with Prolog
         Map<String, Object> prologResult = session.query("has_wings(tweety).");
@@ -37,8 +37,11 @@ public class Main {
         System.out.println("Direct Assert 'mammal(elephant).': Success: true");
         Map<String, Object> directQueryResult = session.query("mammal(X).");
         System.out.println("Query 'mammal(X).': Bindings: " + (directQueryResult.get("bindings") != null ? directQueryResult.get("bindings").toString() : "None"));
+        session.removeFact("elephant", "mammal");
+        System.out.println("Direct Retract 'mammal(elephant).': Success: true");
+        directQueryResult = session.query("mammal(X).");
+        System.out.println("Query 'mammal(X).': Bindings: " + (directQueryResult.get("bindings") != null ? directQueryResult.get("bindings").toString() : "None"));
 
-        // Retraction is not implemented yet in this version of the code.
 
         // Demonstrating high-level fact/relationship/rule management
         System.out.println("\n--- High-Level Fact/Relationship/Rule Management ---");
@@ -49,9 +52,9 @@ public class Main {
         session.addType("food");
         session.addSynonym("human", "person");
 
-        session.assertStatement("person(alice).");
+        session.addFact("alice", "person");
         System.out.println("Add Fact 'alice is a person': Success: true");
-        session.assertStatement("likes(alice, pizza).");
+        session.addRelationship("alice", "likes", "pizza");
         System.out.println("Add Relationship 'alice likes pizza': Success: true");
         session.assertStatement("eats_pizza(X) :- person(X), likes(X, pizza).");
         System.out.println("Add Rule 'eats_pizza(X) :- ...': Success: true");
@@ -62,7 +65,13 @@ public class Main {
         Map<String, Object> queryPizza = session.query("eats_pizza(alice).");
         System.out.println("Query 'eats_pizza(alice).': Success: " + queryPizza.get("success"));
 
-        // Removal is not implemented yet in this version of the code.
+        session.removeRelationship("alice", "likes", "pizza");
+        System.out.println("Remove Relationship 'alice likes pizza': Success: true");
+        queryPizza = session.query("eats_pizza(alice).");
+        System.out.println("Query 'eats_pizza(alice).': Success after removal: " + queryPizza.get("success")); // Should be false
+
+        session.removeFact("alice", "person");
+        System.out.println("Remove Fact 'alice is a person': Success: true");
 
 
         // Demonstrating Ontology Management (beyond initial setup)
@@ -77,7 +86,13 @@ public class Main {
 
         session.assertStatement("The dog is happy."); // Add a fact after clearing
         System.out.println("KG after assert: " + session.getKnowledgeGraph());
-        // saveState/loadState not implemented yet
+        String savedState = session.saveState();
+        System.out.println("Session state saved. Length: " + savedState.length());
+
+        Session loadedSession = mcr.createSession();
+        loadedSession.loadState(savedState);
+        System.out.println("State loaded into new session. KG: " + loadedSession.getKnowledgeGraph());
+
 
         // Demonstrating reload ontology and revalidation
         System.out.println("\n--- Ontology Reload and Revalidation ---");
@@ -93,7 +108,12 @@ public class Main {
 
 
         // Reason about task (requires LLM)
-        // 'reason' method not implemented yet
+        Map<String, Object> reasonResult = session.reason("Determine if Tweety can migrate.", new HashMap<>());
+        System.out.println("\nReasoning Task Result:");
+        System.out.println("  Answer: " + reasonResult.get("answer"));
+        System.out.println("  Steps:\n    " + String.join("\n    ", (java.util.List<String>) reasonResult.get("steps")));
+        System.out.println("  Confidence: " + reasonResult.get("confidence"));
+
 
         // NEW: Get global LLM usage metrics
         System.out.println("\n--- Session LLM Metrics ---");

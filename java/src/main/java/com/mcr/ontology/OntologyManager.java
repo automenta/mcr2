@@ -100,6 +100,7 @@ public class OntologyManager {
         allTerms.addAll(types);
         allTerms.addAll(relationships);
         allTerms.addAll(synonyms.keySet());
+        //rules.forEach(rule -> allTerms.add(rule.toString())); // Assuming rule.toString() is meaningful
 
         List<String> similar = allTerms.stream()
                 .filter(term -> term.startsWith(predicate.substring(0, Math.min(predicate.length(), 3))) || term.contains(predicate))
@@ -138,5 +139,9 @@ public class OntologyManager {
 
     public Map<String, String> getSynonyms() {
         return synonyms;
+    }
+
+    public List<Object> getRules() {
+        return rules;
     }
 }

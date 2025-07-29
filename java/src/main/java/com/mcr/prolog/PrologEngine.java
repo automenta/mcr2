@@ -65,4 +65,8 @@ public class PrologEngine {
         }
         solver.setTheory(newTheory);
     }
+
+    public void setKnowledgeBase(String knowledgeBase) {
+        solver.setTheory(Theory.parse(knowledgeBase, solver.getOperators()));
+    }
 }
