@@ -143,6 +143,10 @@ public class Session {
     }
 
 
+    public String getSessionId() {
+        return null;
+    }
+
     public static class LlmMetrics {
         public final int calls;
         public final long promptTokens;

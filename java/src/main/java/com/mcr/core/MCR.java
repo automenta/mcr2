@@ -4,6 +4,7 @@ import com.mcr.ontology.OntologyManager;
 import com.mcr.translation.DirectToProlog;
 import com.mcr.translation.JsonToProlog;
 import com.mcr.translation.TranslationStrategy;
+import com.mcr.translation.AgenticReasoning;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 
@@ -27,6 +28,7 @@ public class MCR {
         this.llmConfig = llmConfig;
         registerStrategy("direct", new DirectToProlog());
         registerStrategy("json", new JsonToProlog());
+        registerStrategy("agentic", new AgenticReasoning());
     }
 
     public Session createSession() {
@@ -94,6 +96,14 @@ public class MCR {
 
         public String getModel() {
             return model;
+        }
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public String getApiKey() {
+            return apiKey;
         }
     }
 }

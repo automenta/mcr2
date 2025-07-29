@@ -1,5 +1,6 @@
 /app/java/src/main/java/com/mcr/core/MCR.java
 /app/java/src/main/java/com/mcr/core/Session.java
+/app/java/src/main/java/com/mcr/translation/FewShotToProlog.java
 /app/java/src/main/java/com/mcr/ontology/OntologyManager.java
 /app/java/src/main/java/com/mcr/llm/LlmClientFactory.java
 /app/java/src/main/java/com/mcr/translation/TranslationStrategy.java
