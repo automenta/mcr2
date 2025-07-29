@@ -3,13 +3,14 @@ package com.mcr.translation;
 import com.google.gson.Gson;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class JsonToProlog implements TranslationStrategy {
 
     @Override
-    public String translate(String naturalLanguageText, Object llmClient, String model, List<String> ontologyTerms, String feedback) throws Exception {
+    public Map<String, Object> translate(String naturalLanguageText, Object llmClient, String model, List<String> ontologyTerms, String feedback) throws Exception {
         if (!(llmClient instanceof ChatLanguageModel)) {
             throw new IllegalArgumentException("JsonToProlog requires a ChatLanguageModel.");
         }
@@ -31,7 +32,9 @@ public class JsonToProlog implements TranslationStrategy {
                 "Output:";
 
         String jsonOutput = client.generate(prompt).trim();
-        return convertJsonToProlog(new Gson().fromJson(jsonOutput, Map.class));
+        Map<String, Object> resultMap = new HashMap<>();
+        resultMap.put("prolog", convertJsonToProlog(new Gson().fromJson(jsonOutput, Map.class)));
+        return resultMap;
     }
 
     private String convertJsonToProlog(Map<String, Object> jsonOutput) {

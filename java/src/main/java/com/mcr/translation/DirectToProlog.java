@@ -2,12 +2,14 @@ package com.mcr.translation;
 
 import dev.langchain4j.model.chat.ChatLanguageModel;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class DirectToProlog implements TranslationStrategy {
 
     @Override
-    public String translate(String naturalLanguageText, Object llmClient, String model, List<String> ontologyTerms, String feedback) throws Exception {
+    public Map<String, Object> translate(String naturalLanguageText, Object llmClient, String model, List<String> ontologyTerms, String feedback) throws Exception {
         if (!(llmClient instanceof ChatLanguageModel)) {
             throw new IllegalArgumentException("DirectToProlog requires a ChatLanguageModel.");
         }
@@ -29,6 +31,9 @@ public class DirectToProlog implements TranslationStrategy {
                 "Input: " + naturalLanguageText + "\n" +
                 "Output:";
 
-        return client.generate(prompt).trim();
+        String prologResult = client.generate(prompt).trim();
+        Map<String, Object> result = new HashMap<>();
+        result.put("prolog", prologResult);
+        return result;
     }
 }

@@ -7,16 +7,42 @@ import com.mcr.translation.AgenticReasoning;
 import com.mcr.translation.DirectToProlog;
 import com.mcr.translation.JsonToProlog;
 import com.mcr.translation.TranslationStrategy;
-import it.unibo.tuprolog.core.Struct;
-import it.unibo.tuprolog.core.Term;
-import it.unibo.tuprolog.solve.Solution;
-import it.unibo.tuprolog.solve.Solver;
-import it.unibo.tuprolog.solve.classic.ClassicSolverFactory;
+import dev.langchain4j.model.chat.ChatLanguageModel;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class MCR {
+
+    public static void main(String[] args) {
+        // This is a very basic CLI. A real application would use a proper command-line parsing library.
+        if (args.length == 0) {
+            System.out.println("Usage: java com.mcr.MCR <natural language query or statement>");
+            return;
+        }
+
+        String input = String.join(" ", args);
+
+        Map<String, Object> config = new HashMap<>();
+        // You would typically load this from a config file
+        config.put("llm", new HashMap<String, Object>() {{
+            put("provider", "openai");
+            put("apiKey", System.getenv("OPENAI_API_KEY"));
+            put("model", "gpt-3.5-turbo");
+        }});
+
+        MCR mcr = new MCR(config);
+        Session session = mcr.createSession(new HashMap<>());
+
+        if (input.toLowerCase().startsWith("what") || input.toLowerCase().startsWith("is") || input.toLowerCase().startsWith("does")) {
+            Map<String, Object> result = session.nquery(input, new HashMap<>());
+            System.out.println(new Gson().toJson(result));
+        } else {
+            Map<String, Object> result = session.assertStatement(input);
+            System.out.println(new Gson().toJson(result));
+        }
+    }
 
     private final Map<String, Object> config;
     private final ChatLanguageModel llmClient;
@@ -27,7 +53,7 @@ public class MCR {
     public MCR(Map<String, Object> config) {
         this.config = config;
         Map<String, Object> llmConfig = (Map<String, Object>) config.getOrDefault("llm", new HashMap<>());
-        this.llmClient = llmConfig.containsKey("client") ? llmConfig.get("client") : LlmClientFactory.getLlmClient(llmConfig);
+        this.llmClient = llmConfig.containsKey("client") ? (ChatLanguageModel) llmConfig.get("client") : LlmClientFactory.getLlmClient(llmConfig);
         this.llmModel = (String) llmConfig.getOrDefault("model", "gpt-3.5-turbo");
         this.totalLlmUsage = new HashMap<>();
         this.totalLlmUsage.put("promptTokens", 0L);
@@ -88,7 +114,7 @@ public class MCR {
             this.llmUsage.put("calls", 0L);
             this.llmUsage.put("totalLatencyMs", 0L);
 
-            this.prologSession = ClassicSolverFactory.INSTANCE.solverOf();
+            this.prologSession = ClassicSolverFactory.get().solverOf();
 
             if (this.options.containsKey("program") && this.options.get("program") instanceof List) {
                 for (String clause : (List<String>) this.options.get("program")) {
@@ -114,7 +140,7 @@ public class MCR {
         }
 
         private void consultProgram() {
-            this.prologSession = ClassicSolverFactory.INSTANCE.solverOf(Struct.parse(String.join("\n", this.program), prologSession.getOperators()));
+            this.prologSession = ClassicSolverFactory.get().solverOf(Struct.parse(String.join("\n", this.program), prologSession.getOperators()));
         }
 
         private boolean isValidPrologSyntax(String prologString) {
@@ -122,7 +148,7 @@ public class MCR {
                 return false;
             }
             try {
-                ClassicSolverFactory.INSTANCE.solverOf(Struct.parse(prologString.trim(), prologSession.getOperators()));
+                ClassicSolverFactory.get().solverOf(Struct.parse(prologString.trim(), prologSession.getOperators()));
                 return true;
             } catch (Exception e) {
                 return false;
@@ -192,7 +218,15 @@ public class MCR {
                 result.put("confidence", success ? 1.0 : 0.0);
 
                 if (!success && allowSubSymbolicFallback && mcr.llmClient != null) {
-                    // LLM fallback logic would go here
+                    String knowledgeGraph = getKnowledgeGraph("prolog");
+                    String prompt = "Given the following knowledge graph:\n" + knowledgeGraph + "\n\n" +
+                            "Please answer the following query: " + prologQuery + "\n\n" +
+                            "Provide a natural language explanation for your answer.";
+
+                    String llmAnswer = mcr.llmClient.generate(prompt).trim();
+                    result.put("success", true); // Or false, depending on how you want to handle this
+                    result.put("explanation", Collections.singletonList(llmAnswer));
+                    result.put("confidence", 0.5); // Or some other value to indicate it's an LLM fallback
                 }
 
             } catch (Exception e) {
@@ -209,7 +243,8 @@ public class MCR {
             Map<String, Object> result = new HashMap<>();
             String prologQuery = null;
             try {
-                prologQuery = translateWithRetry(naturalLanguageQuery);
+                Map<String, Object> translation = translateWithRetry(naturalLanguageQuery);
+                prologQuery = (String) translation.get("prolog");
                 if (prologQuery == null || prologQuery.trim().endsWith(".")) {
                     result.put("success", false);
                     result.put("prologQuery", prologQuery);
@@ -234,7 +269,8 @@ public class MCR {
         public Map<String, Object> assertStatement(String naturalLanguageText) {
             Map<String, Object> result = new HashMap<>();
             try {
-                String prologClause = translateWithRetry(naturalLanguageText);
+                Map<String, Object> translation = translateWithRetry(naturalLanguageText);
+                String prologClause = (String) translation.get("prolog");
                 if (prologClause == null || !prologClause.trim().endsWith(".")) {
                     result.put("success", false);
                     result.put("symbolicRepresentation", prologClause);
@@ -253,13 +289,29 @@ public class MCR {
             }
         }
 
-        private String translateWithRetry(String text) throws Exception {
-            // This is a simplified version. A full implementation would handle retries and strategy fallback.
-            TranslationStrategy translator = mcr.strategyRegistry.get("direct");
-            List<String> ontologyTerms = new ArrayList<>();
-            ontologyTerms.addAll(ontology.getTypes());
-            ontologyTerms.addAll(ontology.getRelationships());
-            return translator.translate(text, mcr.llmClient, mcr.llmModel, ontologyTerms, null);
+        private Map<String, Object> translateWithRetry(String text) throws Exception {
+            String[] strategies = {"direct", "json"};
+            String feedback = null;
+            for (int i = 0; i < maxAttempts; i++) {
+                for (String strategyName : strategies) {
+                    try {
+                        TranslationStrategy translator = mcr.strategyRegistry.get(strategyName);
+                        List<String> ontologyTerms = new ArrayList<>();
+                        ontologyTerms.addAll(ontology.getTypes());
+                        ontologyTerms.addAll(ontology.getRelationships());
+                        Map<String, Object> result = translator.translate(text, mcr.llmClient, mcr.llmModel, ontologyTerms, feedback);
+                        String prolog = (String) result.get("prolog");
+                        if (isValidPrologSyntax(prolog)) {
+                            return result;
+                        }
+                        feedback = "Invalid Prolog syntax. Please try again.";
+                    } catch (Exception e) {
+                        feedback = "Translation failed: " + e.getMessage();
+                    }
+                }
+                Thread.sleep(retryDelay);
+            }
+            throw new Exception("Translation failed after " + maxAttempts + " attempts.");
         }
     }
 }

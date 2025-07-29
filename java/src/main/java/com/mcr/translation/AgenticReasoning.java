@@ -9,7 +9,7 @@ import java.util.Map;
 public class AgenticReasoning implements TranslationStrategy {
 
     @Override
-    public String translate(String naturalLanguageText, Object llmClient, String model, List<String> ontologyTerms, String feedback) throws Exception {
+    public Map<String, Object> translate(String naturalLanguageText, Object llmClient, String model, List<String> ontologyTerms, String feedback) throws Exception {
         if (!(llmClient instanceof ChatLanguageModel)) {
             throw new IllegalArgumentException("AgenticReasoning requires a ChatLanguageModel.");
         }
@@ -37,10 +37,6 @@ public class AgenticReasoning implements TranslationStrategy {
                 "What is your next logical step?";
 
         String jsonOutput = client.generate(prompt).trim();
-        Map<String, Object> agentAction = new Gson().fromJson(jsonOutput, Map.class);
-
-        // In a real implementation, we would return the structured action, not just a string.
-        // For now, we'll just return the JSON string.
-        return jsonOutput;
+        return new Gson().fromJson(jsonOutput, Map.class);
     }
 }

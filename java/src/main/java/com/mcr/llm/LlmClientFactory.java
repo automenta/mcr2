@@ -8,21 +8,20 @@ import java.util.Map;
 public class LlmClientFactory {
 
     public static ChatLanguageModel getLlmClient(Map<String, Object> llmConfig) {
-        String provider = (String) llmConfig.get("provider");
-        if (provider == null) {
-            throw new IllegalArgumentException("LLM provider must be specified.");
-        }
+        String provider = (String) llmConfig.getOrDefault("provider", "openai");
+        String apiKey = (String) llmConfig.get("apiKey");
+        String model = (String) llmConfig.get("model");
 
-        switch (provider.toLowerCase()) {
-            case "openai":
-                String apiKey = (String) llmConfig.get("apiKey");
-                if (apiKey == null) {
-                    throw new IllegalArgumentException("OpenAI provider requires an apiKey.");
-                }
-                return OpenAiChatModel.withApiKey(apiKey);
-            // Other providers can be added here
-            default:
-                throw new IllegalArgumentException("Unsupported LLM provider: " + provider);
+        if ("openai".equalsIgnoreCase(provider)) {
+            if (apiKey == null) {
+                throw new IllegalArgumentException("OpenAI API key is required.");
+            }
+            return OpenAiChatModel.builder()
+                    .apiKey(apiKey)
+                    .modelName(model)
+                    .build();
+        } else {
+            throw new IllegalArgumentException("Unsupported LLM provider: " + provider);
         }
     }
 }
