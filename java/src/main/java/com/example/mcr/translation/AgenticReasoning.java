@@ -1,14 +1,12 @@
-package main.java.com.example.mcr.translation;
+package com.example.mcr.translation;
 
-import com.example.mcr.core.LLMClient;
-import com.example.mcr.core.LLMUsageMetrics;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public class AgenticReasoning implements TranslationStrategy {
 
     @Override
-    public CompletableFuture<TranslationResult> translate(String input, LLMClient llmClient, String model, List<String> ontologyTerms, String feedback, boolean returnFullResponse) {
+    public CompletableFuture<TranslationResult> translate(String input, Object llmClient, String model, List<String> ontologyTerms, String feedback, boolean returnFullResponse) {
         try {
             // Build ontology hint
             StringBuilder ontologyHint = new StringBuilder();
@@ -42,20 +40,10 @@ public class AgenticReasoning implements TranslationStrategy {
                     "\nGiven the task: \"" + input + "\"\n" +
                     "What is your next logical step?";
 
-            // Simulate LLM response (in real implementation, this would call the LLM client)
-            // For demonstration, we'll create a mock response
-            String mockResponse = "{\"type\":\"query\",\"content\":\"has_wings(tweety).\"}";
-            
-            // In a real implementation:
-            // CompletableFuture<LLMResponse> llmResponse = llmClient.chat().completions().create(model, prompt);
-            
-            // Parse response
+            // For now, we'll just return a mock response
             TranslationResult result = new TranslationResult();
             result.setType("query");
             result.setContent("has_wings(tweety).");
-            
-            // In real implementation, you would parse the actual LLM response
-            // and handle errors/retries as shown in the JavaScript version
             
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
@@ -63,11 +51,9 @@ public class AgenticReasoning implements TranslationStrategy {
         }
     }
 
-    // Mock TranslationResult class for demonstration
     public static class TranslationResult {
         private String type;
         private String content;
-        // Additional fields would be added as needed in a real implementation
         
         public String getType() { return type; }
         public void setType(String type) { this.type = type; }

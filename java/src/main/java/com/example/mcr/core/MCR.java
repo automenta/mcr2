@@ -2,6 +2,9 @@ package com.example.mcr.core;
 
 import com.example.mcr.llm.LLMClient;
 import com.example.mcr.translation.TranslationStrategy;
+import com.example.mcr.translation.DirectToProlog;
+import com.example.mcr.translation.JsonToProlog;
+import com.example.mcr.translation.AgenticReasoning;
 import com.example.mcr.core.Session;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,11 +28,31 @@ public class MCR {
         }
         this.totalLlmUsage = new LLMUsageMetrics();
         
-        if (config.llm != null && config.llm.client != null) {
-            this.llmClient = config.llm.client;
-        } else if (config.llm != null && config.llm.provider != null) {
-            // Assuming getLlmClient is implemented elsewhere
+        if (config.llm != null && config.llm.provider != null) {
             this.llmClient = getLlmClient(config.llm);
+        } else {
+            // Default to OpenAI if no config provided
+            try {
+                this.llmClient = new LLMClient("openai", "gpt-3.5-turbo", null);
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Failed to create default LLM client", e);
+            }
+        }
+        private LLMClient getLlmClient(LlmConfig llmConfig) {
+            if (llmConfig == null) {
+                throw new IllegalArgumentException("LLM config cannot be null");
+            }
+            
+            try {
+                return new LLMClient(
+                    llmConfig.provider,
+                    llmConfig.model,
+                    llmConfig.apiKey
+                );
+            } catch (IllegalArgumentException e) {
+                throw new RuntimeException("Invalid LLM configuration: " + e.getMessage(), e);
+            }
+        }
         }
     }
 
@@ -50,8 +73,19 @@ public class MCR {
 
     // Assuming getLlmClient is implemented elsewhere
     private LLMClient getLlmClient(LlmConfig llmConfig) {
-        // Implementation details...
-        return new LLMClient(); // Placeholder
+        if (llmConfig == null) {
+            throw new IllegalArgumentException("LLM config cannot be null");
+        }
+        
+        try {
+            return new LLMClient(
+                llmConfig.provider,
+                llmConfig.model,
+                llmConfig.apiKey
+            );
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid LLM configuration: " + e.getMessage(), e);
+        }
     }
 
     public static class Config {
